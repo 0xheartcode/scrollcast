@@ -1,0 +1,149 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ThemeMode {
+    Light,
+    Dark,
+}
+
+impl Default for ThemeMode {
+    fn default() -> Self {
+        ThemeMode::Light
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ColorScheme {
+    pub background: String,
+    pub text: String,
+    pub keywords: String,
+    pub strings: String,
+    pub comments: String,
+    pub numbers: String,
+    pub functions: String,
+    pub types: String,
+    pub operators: String,
+    pub line_numbers: String,
+    pub header: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Theme {
+    pub mode: ThemeMode,
+    pub colors: ColorScheme,
+    pub font_size: f32,
+    pub line_height: f32,
+}
+
+impl Theme {
+    pub fn light() -> Self {
+        Theme {
+            mode: ThemeMode::Light,
+            colors: ColorScheme {
+                background: "#FFFFFF".to_string(),
+                text: "#2D3748".to_string(),
+                keywords: "#3182CE".to_string(),
+                strings: "#38A169".to_string(),
+                comments: "#718096".to_string(),
+                numbers: "#805AD5".to_string(),
+                functions: "#D69E2E".to_string(),
+                types: "#319795".to_string(),
+                operators: "#E53E3E".to_string(),
+                line_numbers: "#A0AEC0".to_string(),
+                header: "#1A202C".to_string(),
+            },
+            font_size: 10.0,
+            line_height: 1.2,
+        }
+    }
+
+    pub fn dark() -> Self {
+        Theme {
+            mode: ThemeMode::Dark,
+            colors: ColorScheme {
+                background: "#1A202C".to_string(),
+                text: "#E2E8F0".to_string(),
+                keywords: "#63B3ED".to_string(),
+                strings: "#68D391".to_string(),
+                comments: "#A0AEC0".to_string(),
+                numbers: "#B794F6".to_string(),
+                functions: "#F6E05E".to_string(),
+                types: "#4FD1C7".to_string(),
+                operators: "#FC8181".to_string(),
+                line_numbers: "#718096".to_string(),
+                header: "#F7FAFC".to_string(),
+            },
+            font_size: 10.0,
+            line_height: 1.2,
+        }
+    }
+
+    pub fn from_mode(mode: ThemeMode) -> Self {
+        match mode {
+            ThemeMode::Light => Self::light(),
+            ThemeMode::Dark => Self::dark(),
+        }
+    }
+
+    /// Convert hex color to RGB values (0.0-1.0 range for PDF)
+    pub fn hex_to_rgb(hex: &str) -> (f32, f32, f32) {
+        let hex = hex.trim_start_matches('#');
+        if hex.len() != 6 {
+            return (0.0, 0.0, 0.0); // Default to black for invalid colors
+        }
+
+        let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0) as f32 / 255.0;
+        let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0) as f32 / 255.0;
+        let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0) as f32 / 255.0;
+
+        (r, g, b)
+    }
+
+    /// Get color mapping for syntax highlighting
+    pub fn get_color_map(&self) -> HashMap<String, (f32, f32, f32)> {
+        let mut map = HashMap::new();
+        
+        map.insert("keyword".to_string(), Self::hex_to_rgb(&self.colors.keywords));
+        map.insert("string".to_string(), Self::hex_to_rgb(&self.colors.strings));
+        map.insert("comment".to_string(), Self::hex_to_rgb(&self.colors.comments));
+        map.insert("number".to_string(), Self::hex_to_rgb(&self.colors.numbers));
+        map.insert("function".to_string(), Self::hex_to_rgb(&self.colors.functions));
+        map.insert("type".to_string(), Self::hex_to_rgb(&self.colors.types));
+        map.insert("operator".to_string(), Self::hex_to_rgb(&self.colors.operators));
+        map.insert("text".to_string(), Self::hex_to_rgb(&self.colors.text));
+        
+        map
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hex_to_rgb() {
+        assert_eq!(Theme::hex_to_rgb("#FFFFFF"), (1.0, 1.0, 1.0));
+        assert_eq!(Theme::hex_to_rgb("#000000"), (0.0, 0.0, 0.0));
+        assert_eq!(Theme::hex_to_rgb("#FF0000"), (1.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn test_theme_creation() {
+        let light = Theme::light();
+        assert!(matches!(light.mode, ThemeMode::Light));
+        
+        let dark = Theme::dark();
+        assert!(matches!(dark.mode, ThemeMode::Dark));
+    }
+
+    #[test]
+    fn test_color_map() {
+        let theme = Theme::light();
+        let color_map = theme.get_color_map();
+        
+        assert!(color_map.contains_key("keyword"));
+        assert!(color_map.contains_key("string"));
+        assert!(color_map.contains_key("comment"));
+    }
+}
