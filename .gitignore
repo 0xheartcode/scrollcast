@@ -1,6 +1,11 @@
 inspiration/
 
+# Output directory and generated files
+output/
+*.pdf
+
+# Configuration files (users will create their own)
+git-to-pdf.toml
 
 # Added by cargo
-
 /target
