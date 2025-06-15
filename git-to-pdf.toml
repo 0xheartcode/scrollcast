@@ -1,0 +1,34 @@
+[output]
+folder = "output"
+filename = "my-custom-project.pdf"
+create_folder = true
+single_file = true
+
+[theme]
+mode = "dark"
+font_size = 12.0
+line_height = 1.3
+
+[formatting]
+line_numbers = true
+page_numbers = true
+syntax_highlighting = true
+remove_comments = false
+remove_empty_lines = false
+
+[ignore]
+files = [
+    "*.tmp",
+    "*.log",
+    ".env",
+]
+extensions = [
+    ".tmp",
+    ".log",
+    ".cache",
+]
+directories = [
+    "tmp",
+    "temp",
+    "logs",
+]

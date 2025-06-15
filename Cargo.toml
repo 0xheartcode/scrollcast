@@ -41,6 +41,9 @@ thiserror = "1.0"
 # Color and styling
 colorful = "0.2"
 
+# Configuration and directories
+dirs = "5.0"
+
 [dev-dependencies]
 tempfile = "3.8"
 assert_cmd = "2.0"
