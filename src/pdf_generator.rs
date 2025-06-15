@@ -39,8 +39,12 @@ impl PdfGenerator {
         let font_regular = doc.add_builtin_font(BuiltinFont::Courier)?;
         let font_bold = doc.add_builtin_font(BuiltinFont::CourierBold)?;
 
-        // Set background color (simplified approach - just use text color on white background)
-        let (_bg_r, _bg_g, _bg_b) = Theme::hex_to_rgb(&self.theme.colors.background);
+        // Set background color if dark theme
+        if matches!(self.theme.mode, crate::theme::ThemeMode::Dark) {
+            let (bg_r, bg_g, bg_b) = Theme::hex_to_rgb(&self.theme.colors.background);
+            // For now, we'll just note the background color - PDF background handling is complex
+            println!("Using dark background: rgb({}, {}, {})", bg_r, bg_g, bg_b);
+        }
 
         for file_content in files {
             // Add file header

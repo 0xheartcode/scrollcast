@@ -42,16 +42,16 @@ impl Theme {
             mode: ThemeMode::Light,
             colors: ColorScheme {
                 background: "#FFFFFF".to_string(),
-                text: "#2D3748".to_string(),
-                keywords: "#3182CE".to_string(),
-                strings: "#38A169".to_string(),
-                comments: "#718096".to_string(),
-                numbers: "#805AD5".to_string(),
-                functions: "#D69E2E".to_string(),
-                types: "#319795".to_string(),
-                operators: "#E53E3E".to_string(),
-                line_numbers: "#A0AEC0".to_string(),
-                header: "#1A202C".to_string(),
+                text: "#1a1a1a".to_string(),           // Dark gray text
+                keywords: "#0066cc".to_string(),        // Blue keywords
+                strings: "#008000".to_string(),         // Green strings
+                comments: "#808080".to_string(),        // Gray comments
+                numbers: "#800080".to_string(),         // Purple numbers
+                functions: "#cc6600".to_string(),       // Orange functions
+                types: "#008080".to_string(),           // Teal types
+                operators: "#cc0000".to_string(),       // Red operators
+                line_numbers: "#666666".to_string(),    // Medium gray line numbers
+                header: "#000000".to_string(),          // Black headers
             },
             font_size: 10.0,
             line_height: 1.2,
@@ -62,17 +62,17 @@ impl Theme {
         Theme {
             mode: ThemeMode::Dark,
             colors: ColorScheme {
-                background: "#1A202C".to_string(),
-                text: "#E2E8F0".to_string(),
-                keywords: "#63B3ED".to_string(),
-                strings: "#68D391".to_string(),
-                comments: "#A0AEC0".to_string(),
-                numbers: "#B794F6".to_string(),
-                functions: "#F6E05E".to_string(),
-                types: "#4FD1C7".to_string(),
-                operators: "#FC8181".to_string(),
-                line_numbers: "#718096".to_string(),
-                header: "#F7FAFC".to_string(),
+                background: "#2d2d2d".to_string(),      // Dark gray background
+                text: "#f0f0f0".to_string(),            // Light gray text
+                keywords: "#66b3ff".to_string(),        // Light blue keywords
+                strings: "#66ff66".to_string(),         // Light green strings
+                comments: "#b3b3b3".to_string(),        // Light gray comments
+                numbers: "#ff66ff".to_string(),         // Light purple numbers
+                functions: "#ffcc66".to_string(),       // Light orange functions
+                types: "#66ffcc".to_string(),           // Light teal types
+                operators: "#ff6666".to_string(),       // Light red operators
+                line_numbers: "#999999".to_string(),    // Gray line numbers
+                header: "#ffffff".to_string(),          // White headers
             },
             font_size: 10.0,
             line_height: 1.2,

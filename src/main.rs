@@ -1,10 +1,13 @@
 mod theme;
 mod pdf_generator;
+mod file_processor;
+mod syntax_highlighter;
 
 use anyhow::Result;
 use clap::{Arg, Command};
 use theme::{Theme, ThemeMode};
 use pdf_generator::{PdfGenerator, FileContent};
+use syntax_highlighter::SyntaxHighlighter;
 
 fn main() -> Result<()> {
     let matches = Command::new("git-to-pdf")
@@ -69,8 +72,9 @@ fn main() -> Result<()> {
         ThemeMode::Dark => "dark",
     });
 
-    // For now, let's create a simple test PDF with some sample code
-    let sample_content = create_sample_content();
+    // Create syntax highlighter and sample content with proper highlighting
+    let highlighter = SyntaxHighlighter::new(theme.clone());
+    let sample_content = create_sample_content_with_highlighting(&highlighter);
     
     let generator = PdfGenerator::new(theme, line_numbers, page_numbers);
     
@@ -82,7 +86,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn create_sample_content() -> FileContent {
+fn create_sample_content_with_highlighting(highlighter: &SyntaxHighlighter) -> FileContent {
     let rust_code = r#"use std::collections::HashMap;
 use anyhow::Result;
 
@@ -105,7 +109,9 @@ fn main() -> Result<()> {
     Ok(())
 }"#;
 
-    FileContent::new("src/main.rs".to_string(), rust_code.to_string())
+    // Use syntax highlighting for the sample content
+    let highlighted_lines = highlighter.highlight_simple(rust_code, "rs");
+    FileContent::with_highlighting("src/main.rs".to_string(), highlighted_lines)
 }
 
 #[cfg(test)]
@@ -114,7 +120,9 @@ mod tests {
 
     #[test]
     fn test_sample_content_creation() {
-        let content = create_sample_content();
+        let theme = Theme::light();
+        let highlighter = SyntaxHighlighter::new(theme);
+        let content = create_sample_content_with_highlighting(&highlighter);
         assert_eq!(content.path, "src/main.rs");
         assert!(!content.lines.is_empty());
     }
