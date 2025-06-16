@@ -4,8 +4,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 use serde::{Deserialize, Serialize};
+use git2::Repository;
 
-use crate::pdf_generator::{FileContent, CodeLine};
+use crate::markdown_generator::{FileInfo, MarkdownGenerator};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IgnoreConfig {
@@ -25,6 +26,7 @@ impl Default for IgnoreConfig {
 pub struct FileProcessor {
     ignore_config: IgnoreConfig,
     universal_excludes: UniversalExcludes,
+    respect_gitignore: bool,
 }
 
 impl FileProcessor {
@@ -32,11 +34,17 @@ impl FileProcessor {
         Self {
             ignore_config: IgnoreConfig::default(),
             universal_excludes: UniversalExcludes::new(),
+            respect_gitignore: true,
         }
     }
 
     pub fn with_ignore_config(mut self, config: IgnoreConfig) -> Self {
         self.ignore_config = config;
+        self
+    }
+
+    pub fn with_gitignore_respect(mut self, respect: bool) -> Self {
+        self.respect_gitignore = respect;
         self
     }
 
@@ -52,9 +60,16 @@ impl FileProcessor {
         Ok(self)
     }
 
-    pub fn process_directory<P: AsRef<Path>>(&self, path: P) -> Result<Vec<FileContent>> {
+    pub fn process_directory<P: AsRef<Path>>(&self, path: P) -> Result<Vec<FileInfo>> {
         let mut files = Vec::new();
         let root_path = path.as_ref();
+
+        // Try to get git repository for .gitignore support
+        let repo = if self.respect_gitignore {
+            Repository::open(root_path).ok()
+        } else {
+            None
+        };
 
         for entry in WalkDir::new(root_path)
             .follow_links(false)
@@ -64,9 +79,9 @@ impl FileProcessor {
             if entry.file_type().is_file() {
                 let file_path = entry.path();
                 
-                if self.should_process_file(file_path, root_path)? {
+                if self.should_process_file(file_path, root_path, repo.as_ref())? {
                     match self.process_single_file(file_path, root_path) {
-                        Ok(file_content) => files.push(file_content),
+                        Ok(file_info) => files.push(file_info),
                         Err(e) => {
                             eprintln!("Warning: Failed to process file {}: {}", file_path.display(), e);
                             continue;
@@ -81,7 +96,7 @@ impl FileProcessor {
         Ok(files)
     }
 
-    fn should_process_file(&self, file_path: &Path, root_path: &Path) -> Result<bool> {
+    fn should_process_file(&self, file_path: &Path, root_path: &Path, repo: Option<&Repository>) -> Result<bool> {
         // Get relative path for checking
         let relative_path = file_path.strip_prefix(root_path)
             .context("Failed to get relative path")?;
@@ -90,6 +105,15 @@ impl FileProcessor {
         // Check universal excludes
         if self.universal_excludes.should_exclude(file_path) {
             return Ok(false);
+        }
+
+        // Check .gitignore if requested and repository is available
+        if let Some(repository) = repo {
+            if let Ok(status) = repository.status_file(relative_path) {
+                if status.contains(git2::Status::IGNORED) {
+                    return Ok(false);
+                }
+            }
         }
 
         // Check custom ignore configuration
@@ -111,7 +135,7 @@ impl FileProcessor {
         Ok(true)
     }
 
-    fn process_single_file(&self, file_path: &Path, root_path: &Path) -> Result<FileContent> {
+    fn process_single_file(&self, file_path: &Path, root_path: &Path) -> Result<FileInfo> {
         let relative_path = file_path.strip_prefix(root_path)
             .context("Failed to get relative path")?;
         let relative_path_str = relative_path.to_string_lossy().to_string();
@@ -120,28 +144,39 @@ impl FileProcessor {
         let content = fs::read(file_path)
             .context(format!("Failed to read file: {}", file_path.display()))?;
 
+        let file_size = content.len();
+
         // Check if file is binary
-        match inspect(&content) {
+        let (text_content, detected_language) = match inspect(&content) {
             ContentType::BINARY => {
-                // For binary files, we'll include a placeholder or base64 encoded content
+                // For binary files, we'll include a placeholder
                 let placeholder = format!("[Binary file: {} ({} bytes)]", 
                     file_path.file_name().unwrap_or_default().to_string_lossy(),
                     content.len()
                 );
-                Ok(FileContent::new(relative_path_str, placeholder))
+                (placeholder, None)
             }
             ContentType::UTF_8 | ContentType::UTF_8_BOM => {
-                // Convert to string and process as text
-                let text_content = String::from_utf8_lossy(&content).to_string();
-                Ok(FileContent::new(relative_path_str, text_content))
+                // Convert to string and detect language
+                let text = String::from_utf8_lossy(&content).to_string();
+                let language = MarkdownGenerator::detect_language(&relative_path_str);
+                (text, language)
             }
             ContentType::UTF_16LE | ContentType::UTF_16BE | 
             ContentType::UTF_32LE | ContentType::UTF_32BE => {
                 // Handle UTF-16/32 files
-                let text_content = String::from_utf8_lossy(&content).to_string();
-                Ok(FileContent::new(relative_path_str, text_content))
+                let text = String::from_utf8_lossy(&content).to_string();
+                let language = MarkdownGenerator::detect_language(&relative_path_str);
+                (text, language)
             }
-        }
+        };
+
+        Ok(FileInfo {
+            path: relative_path_str,
+            content: text_content,
+            language: detected_language,
+            size: file_size,
+        })
     }
 }
 

@@ -1,186 +1,241 @@
-mod theme;
-mod pdf_generator;
-mod file_processor;
-mod syntax_highlighter;
+use anyhow::{Context, Result};
+use clap::{Arg, ArgAction, Command};
+use colorful::Colorful;
+use std::path::{Path, PathBuf};
+use std::fs;
+use tokio;
+
 mod config;
+mod file_processor;
+mod markdown_generator;
+mod pandoc;
+mod theme;
 
-use anyhow::Result;
-use clap::{Arg, Command};
-use theme::{Theme, ThemeMode};
-use pdf_generator::{PdfGenerator, FileContent};
-use syntax_highlighter::SyntaxHighlighter;
-use config::Config;
-use std::path::Path;
+use file_processor::FileProcessor;
+use markdown_generator::MarkdownGenerator;
+use pandoc::{PandocConfig, PandocConverter, OutputFormat};
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let matches = Command::new("git-to-pdf")
         .version("0.1.0")
         .author("heartcode <0xheartcode@gmail.com>")
-        .about("Convert Git repositories to beautifully formatted PDF documents")
+        .about("Convert Git repositories to beautifully formatted PDF/EPUB documents")
         .arg(
             Arg::new("input")
-                .help("Repository URL or local path")
-                .required_unless_present("create-config")
-                .index(1),
+                .help("Input directory (git repository or regular folder)")
+                .required(true)
+                .index(1)
+                .value_parser(clap::value_parser!(PathBuf))
         )
         .arg(
             Arg::new("output")
                 .short('o')
                 .long("output")
-                .value_name("FILE")
-                .help("Output PDF file path")
-                .default_value("repository.pdf"),
+                .help("Output file path")
+                .required(true)
+                .value_parser(clap::value_parser!(PathBuf))
+        )
+        .arg(
+            Arg::new("format")
+                .short('f')
+                .long("format")
+                .help("Output format")
+                .value_parser(["pdf", "epub", "html"])
+                .default_value("pdf")
         )
         .arg(
             Arg::new("theme")
                 .short('t')
                 .long("theme")
-                .value_name("THEME")
-                .help("Theme to use (light or dark)")
-                .default_value("light"),
+                .help("Syntax highlighting theme")
+                .value_parser(["pygments", "kate", "monochrome", "breezedark", "espresso", "zenburn", "haddock", "tango"])
+                .default_value("kate")
         )
         .arg(
-            Arg::new("line-numbers")
-                .long("line-numbers")
-                .help("Include line numbers in output")
-                .action(clap::ArgAction::SetTrue),
+            Arg::new("no-gitignore")
+                .long("no-gitignore")
+                .help("Ignore .gitignore files and process all files")
+                .action(ArgAction::SetTrue)
         )
         .arg(
-            Arg::new("page-numbers")
-                .long("page-numbers")
-                .help("Include page numbers in output")
-                .action(clap::ArgAction::SetTrue),
+            Arg::new("no-toc")
+                .long("no-toc")
+                .help("Don't include table of contents")
+                .action(ArgAction::SetTrue)
         )
         .arg(
-            Arg::new("config")
-                .short('c')
-                .long("config")
-                .value_name("FILE")
-                .help("Use specific configuration file"),
+            Arg::new("list-themes")
+                .long("list-themes")
+                .help("List available syntax highlighting themes")
+                .action(ArgAction::SetTrue)
         )
         .arg(
-            Arg::new("create-config")
-                .long("create-config")
-                .help("Create a sample configuration file")
-                .action(clap::ArgAction::SetTrue),
+            Arg::new("list-languages")
+                .long("list-languages")
+                .help("List supported programming languages")
+                .action(ArgAction::SetTrue)
         )
         .get_matches();
 
-    // Handle --create-config flag
-    if matches.get_flag("create-config") {
-        Config::create_sample_config("git-to-pdf.toml")?;
-        println!("✅ Created sample configuration file: git-to-pdf.toml");
-        println!("You can now edit this file to customize your settings.");
+    // Handle list commands
+    if matches.get_flag("list-themes") {
+        list_themes()?;
         return Ok(());
     }
 
-    // Load configuration
-    let config = if let Some(config_file) = matches.get_one::<String>("config") {
-        Config::load_from_file(config_file)?
-    } else {
-        Config::load_default()?
+    if matches.get_flag("list-languages") {
+        list_languages()?;
+        return Ok(());
+    }
+
+    // Get command line arguments
+    let input_path = matches.get_one::<PathBuf>("input").unwrap();
+    let output_path = matches.get_one::<PathBuf>("output").unwrap();
+    let format = matches.get_one::<String>("format").unwrap();
+    let theme = matches.get_one::<String>("theme").unwrap().clone();
+    let respect_gitignore = !matches.get_flag("no-gitignore");
+    let include_toc = !matches.get_flag("no-toc");
+
+    // Parse output format
+    let output_format = match format.as_str() {
+        "pdf" => OutputFormat::Pdf,
+        "epub" => OutputFormat::Epub,
+        "html" => OutputFormat::Html,
+        _ => unreachable!(), // clap ensures this won't happen
     };
 
-    let _input = matches.get_one::<String>("input");
-    let output = matches.get_one::<String>("output").unwrap();
-    let theme_str = matches.get_one::<String>("theme").unwrap();
-    
-    // CLI args override config settings
-    let line_numbers = matches.get_flag("line-numbers") || config.formatting.line_numbers;
-    let page_numbers = matches.get_flag("page-numbers") || config.formatting.page_numbers;
+    // Print startup information
+    println!("{}", "🎨 Git to Document Converter".bright_blue().bold());
+    println!("📂 Input: {}", input_path.display());
+    println!("📄 Output: {}", output_path.display());
+    println!("🎯 Format: {}", format.bright_green());
+    println!("🎨 Theme: {}", theme.bright_yellow());
+    println!("📁 Respect .gitignore: {}", if respect_gitignore { "Yes".bright_green() } else { "No".bright_red() });
 
-    // Parse theme - CLI overrides config
-    let theme_mode = if theme_str != "light" {
-        match theme_str.as_str() {
-            "dark" => ThemeMode::Dark,
-            "light" => ThemeMode::Light,
-            _ => {
-                eprintln!("Invalid theme '{}'. Using config default.", theme_str);
-                config.get_theme_mode()
+    // Validate input path
+    if !input_path.exists() {
+        anyhow::bail!("Input path does not exist: {}", input_path.display());
+    }
+
+    // Create output directory if it doesn't exist
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .context("Failed to create output directory")?;
+    }
+
+    // Process the repository/directory
+    println!("\n{}", "📖 Processing files...".bright_cyan());
+    let file_processor = FileProcessor::new()
+        .with_gitignore_respect(respect_gitignore);
+
+    let files = file_processor.process_directory(input_path)
+        .context("Failed to process input directory")?;
+
+    if files.is_empty() {
+        println!("{}", "⚠️  No files found to process".bright_yellow());
+        return Ok(());
+    }
+
+    println!("✅ Found {} files to process", files.len());
+
+    // Generate markdown
+    println!("{}", "📝 Generating markdown...".bright_cyan());
+    let repo_name = input_path.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Repository");
+
+    let markdown_generator = MarkdownGenerator::new(include_toc, true);
+    let markdown_content = markdown_generator.generate_markdown(files, repo_name)
+        .context("Failed to generate markdown")?;
+
+    // Create temporary markdown file
+    let temp_dir = std::env::temp_dir();
+    let temp_markdown = temp_dir.join(format!("{}_temp.md", repo_name));
+    fs::write(&temp_markdown, markdown_content)
+        .context("Failed to write temporary markdown file")?;
+
+    println!("✅ Markdown generated");
+
+    // Configure Pandoc
+    let pandoc_config = PandocConfig {
+        output_format,
+        highlight_style: theme,
+        include_toc,
+        syntax_definitions: Vec::new(),
+    };
+
+    let converter = PandocConverter::new(pandoc_config)
+        .context("Failed to initialize Pandoc converter")?;
+
+    // Convert to final format
+    println!("{}", "🔄 Converting to final format...".bright_cyan());
+    converter.convert_markdown_to_document(&temp_markdown, output_path).await
+        .context("Failed to convert markdown to final format")?;
+
+    // Clean up temporary file
+    let _ = fs::remove_file(&temp_markdown);
+
+    println!("\n{} Document generated successfully!", "🎉".bright_green());
+    println!("📄 Output: {}", output_path.display().to_string().bright_blue());
+
+    // Show file size
+    if let Ok(metadata) = fs::metadata(output_path) {
+        let size = metadata.len();
+        let size_str = if size > 1_048_576 {
+            format!("{:.1} MB", size as f64 / 1_048_576.0)
+        } else if size > 1024 {
+            format!("{:.1} KB", size as f64 / 1024.0)
+        } else {
+            format!("{} bytes", size)
+        };
+        println!("📊 File size: {}", size_str.bright_green());
+    }
+
+    Ok(())
+}
+
+fn list_themes() -> Result<()> {
+    println!("{}", "Available syntax highlighting themes:".bright_blue().bold());
+    
+    match PandocConverter::list_available_highlight_styles() {
+        Ok(themes) => {
+            for theme in themes {
+                println!("  • {}", theme.bright_green());
             }
         }
-    } else {
-        config.get_theme_mode()
-    };
-
-    let mut theme = Theme::from_mode(theme_mode);
-    
-    // Apply custom font settings from config
-    theme.font_size = config.theme.font_size;
-    theme.line_height = config.theme.line_height;
-    println!("🎨 Using {} theme", match theme.mode {
-        ThemeMode::Light => "light",
-        ThemeMode::Dark => "dark",
-    });
-
-    // Create syntax highlighter and sample content with proper highlighting
-    let highlighter = SyntaxHighlighter::new(theme.clone());
-    let sample_content = create_sample_content_with_highlighting(&highlighter);
-    
-    // Ensure output directory exists
-    let output_dir = config.ensure_output_dir()?;
-    
-    // Determine final output path
-    let final_output_path = if output == "repository.pdf" {
-        // Use config filename if output wasn't specified
-        output_dir.join(config.get_output_filename("repository.pdf"))
-    } else {
-        // Use specified output path
-        if Path::new(output).is_absolute() {
-            output.into()
-        } else {
-            output_dir.join(output)
-        }
-    };
-
-    let generator = PdfGenerator::new(theme, line_numbers, page_numbers);
-    
-    println!("📄 Generating PDF...");
-    generator.create_pdf(final_output_path.to_str().unwrap(), vec![sample_content])?;
-    
-    println!("✅ PDF generated successfully: {}", final_output_path.display());
-    
-    Ok(())
-}
-
-fn create_sample_content_with_highlighting(highlighter: &SyntaxHighlighter) -> FileContent {
-    let rust_code = r#"use std::collections::HashMap;
-use anyhow::Result;
-
-fn main() -> Result<()> {
-    let mut map = HashMap::new();
-    map.insert("key", "value");
-    
-    // Print greeting
-    println!("Hello, world!");
-    
-    let numbers = vec![1, 2, 3, 4, 5];
-    for number in numbers {
-        if number % 2 == 0 {
-            println!("{} is even", number);
-        } else {
-            println!("{} is odd", number);
+        Err(e) => {
+            eprintln!("Failed to get themes: {}", e);
+            println!("Default themes: pygments, kate, monochrome, breezedark, espresso, zenburn, haddock, tango");
         }
     }
     
     Ok(())
-}"#;
-
-    // Use syntax highlighting for the sample content
-    let highlighted_lines = highlighter.highlight_simple(rust_code, "rs");
-    FileContent::with_highlighting("src/main.rs".to_string(), highlighted_lines)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_sample_content_creation() {
-        let theme = Theme::light();
-        let highlighter = SyntaxHighlighter::new(theme);
-        let content = create_sample_content_with_highlighting(&highlighter);
-        assert_eq!(content.path, "src/main.rs");
-        assert!(!content.lines.is_empty());
+fn list_languages() -> Result<()> {
+    println!("{}", "Supported programming languages:".bright_blue().bold());
+    
+    match PandocConverter::list_available_languages() {
+        Ok(languages) => {
+            // Display languages in columns
+            let mut count = 0;
+            for language in languages {
+                print!("{:<20}", language);
+                count += 1;
+                if count % 4 == 0 {
+                    println!();
+                }
+            }
+            if count % 4 != 0 {
+                println!();
+            }
+            println!("\n{}", "Note: Solidity support is automatically added when needed.".bright_yellow());
+        }
+        Err(e) => {
+            eprintln!("Failed to get supported languages: {}", e);
+        }
     }
+    
+    Ok(())
 }
