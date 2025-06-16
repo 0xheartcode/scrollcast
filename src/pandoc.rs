@@ -103,7 +103,7 @@ impl PandocConverter {
         // Format-specific options
         match self.config.output_format {
             OutputFormat::Pdf => {
-                cmd.arg("--pdf-engine=xelatex");
+                cmd.arg("--pdf-engine=pdflatex");
                 if self.config.include_toc {
                     cmd.arg("--toc");
                 }
@@ -112,7 +112,7 @@ impl PandocConverter {
                 if self.config.include_toc {
                     cmd.arg("--toc");
                 }
-                cmd.arg("--epub-cover-image"); // Could add cover image support later
+                // Could add cover image support later
             },
             OutputFormat::Html => {
                 cmd.arg("--standalone");

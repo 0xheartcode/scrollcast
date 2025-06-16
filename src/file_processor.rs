@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use content_inspector::{inspect, ContentType};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use walkdir::WalkDir;
 use serde::{Deserialize, Serialize};
 use git2::Repository;

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Arg, ArgAction, Command};
-use colorful::Colorful;
-use std::path::{Path, PathBuf};
+use colorful::{Colorful, Color};
+use std::path::PathBuf;
 use std::fs;
 use tokio;
 
@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
         .arg(
             Arg::new("input")
                 .help("Input directory (git repository or regular folder)")
-                .required(true)
+                .required_unless_present_any(["list-themes", "list-languages"])
                 .index(1)
                 .value_parser(clap::value_parser!(PathBuf))
         )
@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
                 .short('o')
                 .long("output")
                 .help("Output file path")
-                .required(true)
+                .required_unless_present_any(["list-themes", "list-languages"])
                 .value_parser(clap::value_parser!(PathBuf))
         )
         .arg(
@@ -106,12 +106,12 @@ async fn main() -> Result<()> {
     };
 
     // Print startup information
-    println!("{}", "🎨 Git to Document Converter".bright_blue().bold());
+    println!("{}", "🎨 Git to Document Converter".color(Color::Blue).bold());
     println!("📂 Input: {}", input_path.display());
     println!("📄 Output: {}", output_path.display());
-    println!("🎯 Format: {}", format.bright_green());
-    println!("🎨 Theme: {}", theme.bright_yellow());
-    println!("📁 Respect .gitignore: {}", if respect_gitignore { "Yes".bright_green() } else { "No".bright_red() });
+    println!("🎯 Format: {}", format.clone().color(Color::Green));
+    println!("🎨 Theme: {}", theme.clone().color(Color::Yellow));
+    println!("📁 Respect .gitignore: {}", if respect_gitignore { "Yes".color(Color::Green) } else { "No".color(Color::Red) });
 
     // Validate input path
     if !input_path.exists() {
@@ -125,7 +125,7 @@ async fn main() -> Result<()> {
     }
 
     // Process the repository/directory
-    println!("\n{}", "📖 Processing files...".bright_cyan());
+    println!("\n{}", "📖 Processing files...".color(Color::Cyan));
     let file_processor = FileProcessor::new()
         .with_gitignore_respect(respect_gitignore);
 
@@ -133,14 +133,14 @@ async fn main() -> Result<()> {
         .context("Failed to process input directory")?;
 
     if files.is_empty() {
-        println!("{}", "⚠️  No files found to process".bright_yellow());
+        println!("{}", "⚠️  No files found to process".color(Color::Yellow));
         return Ok(());
     }
 
     println!("✅ Found {} files to process", files.len());
 
     // Generate markdown
-    println!("{}", "📝 Generating markdown...".bright_cyan());
+    println!("{}", "📝 Generating markdown...".color(Color::Cyan));
     let repo_name = input_path.file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("Repository");
@@ -169,15 +169,15 @@ async fn main() -> Result<()> {
         .context("Failed to initialize Pandoc converter")?;
 
     // Convert to final format
-    println!("{}", "🔄 Converting to final format...".bright_cyan());
+    println!("{}", "🔄 Converting to final format...".color(Color::Cyan));
     converter.convert_markdown_to_document(&temp_markdown, output_path).await
         .context("Failed to convert markdown to final format")?;
 
     // Clean up temporary file
     let _ = fs::remove_file(&temp_markdown);
 
-    println!("\n{} Document generated successfully!", "🎉".bright_green());
-    println!("📄 Output: {}", output_path.display().to_string().bright_blue());
+    println!("\n{} Document generated successfully!", "🎉".color(Color::Green));
+    println!("📄 Output: {}", output_path.display().to_string().color(Color::Blue));
 
     // Show file size
     if let Ok(metadata) = fs::metadata(output_path) {
@@ -189,19 +189,19 @@ async fn main() -> Result<()> {
         } else {
             format!("{} bytes", size)
         };
-        println!("📊 File size: {}", size_str.bright_green());
+        println!("📊 File size: {}", size_str.color(Color::Green));
     }
 
     Ok(())
 }
 
 fn list_themes() -> Result<()> {
-    println!("{}", "Available syntax highlighting themes:".bright_blue().bold());
+    println!("{}", "Available syntax highlighting themes:".color(Color::Blue).bold());
     
     match PandocConverter::list_available_highlight_styles() {
         Ok(themes) => {
             for theme in themes {
-                println!("  • {}", theme.bright_green());
+                println!("  • {}", theme.color(Color::Green));
             }
         }
         Err(e) => {
@@ -214,7 +214,7 @@ fn list_themes() -> Result<()> {
 }
 
 fn list_languages() -> Result<()> {
-    println!("{}", "Supported programming languages:".bright_blue().bold());
+    println!("{}", "Supported programming languages:".color(Color::Blue).bold());
     
     match PandocConverter::list_available_languages() {
         Ok(languages) => {
@@ -230,7 +230,7 @@ fn list_languages() -> Result<()> {
             if count % 4 != 0 {
                 println!();
             }
-            println!("\n{}", "Note: Solidity support is automatically added when needed.".bright_yellow());
+            println!("\n{}", "Note: Solidity support is automatically added when needed.".color(Color::Yellow));
         }
         Err(e) => {
             eprintln!("Failed to get supported languages: {}", e);
