@@ -84,6 +84,13 @@ async fn main() -> Result<()> {
                 .help("Skip confirmation prompts")
                 .action(ArgAction::SetTrue)
         )
+        .arg(
+            Arg::new("ignore")
+                .long("ignore")
+                .help("Ignore specific directories (can be used multiple times)")
+                .action(ArgAction::Append)
+                .value_name("DIR")
+        )
         .get_matches();
 
     // Handle list commands
@@ -105,6 +112,11 @@ async fn main() -> Result<()> {
     let respect_gitignore = !matches.get_flag("no-gitignore");
     let include_toc = !matches.get_flag("no-toc");
     let skip_confirmation = matches.get_flag("yes");
+    let ignored_dirs: Vec<String> = matches
+        .get_many::<String>("ignore")
+        .unwrap_or_default()
+        .map(|s| s.to_string())
+        .collect();
 
     // Parse output format
     let output_format = match format.as_str() {
@@ -137,7 +149,8 @@ async fn main() -> Result<()> {
     // Process the repository/directory
     println!("\n{}", "📖 Processing files...".color(Color::Cyan));
     let file_processor = FileProcessor::new()
-        .with_gitignore_respect(respect_gitignore);
+        .with_gitignore_respect(respect_gitignore)
+        .with_ignored_directories(ignored_dirs);
 
     let files = file_processor.process_directory(input_path)
         .context("Failed to process input directory")?;
@@ -197,8 +210,9 @@ async fn main() -> Result<()> {
     converter.convert_markdown_to_document(&temp_markdown, output_path).await
         .context("Failed to convert markdown to final format")?;
 
-    // Clean up temporary file
-    let _ = fs::remove_file(&temp_markdown);
+    // Keep temporary file for debugging
+    // let _ = fs::remove_file(&temp_markdown);
+    println!("📝 Debug: Temporary markdown file: {}", temp_markdown.display());
 
     println!("\n{} Document generated successfully!", "🎉".color(Color::Green));
     println!("📄 Output: {}", output_path.display().to_string().color(Color::Blue));

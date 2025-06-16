@@ -157,7 +157,7 @@ impl MarkdownGenerator {
             "r" => "r",
             "sql" => "sql",
             "dockerfile" => "dockerfile",
-            "sol" => "solidity",  // Solidity support
+            "sol" => "javascript",  // Use JavaScript highlighting for Solidity as fallback
             "vy" => "python",     // Vyper (use python highlighting as fallback)
             "move" => "rust",     // Move language (use rust as fallback)
             _ => return None,

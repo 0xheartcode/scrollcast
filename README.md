@@ -64,6 +64,12 @@ scrollcast /path/to/repo -o output.pdf -t zenburn
 
 # Ignore .gitignore files
 scrollcast /path/to/repo -o output.pdf --no-gitignore
+
+# Ignore specific directories
+scrollcast /path/to/repo -o output.pdf --ignore lib --ignore node_modules
+
+# Skip confirmation prompts
+scrollcast /path/to/repo -o output.pdf -y
 ```
 
 ## 📖 Command Line Options
@@ -82,6 +88,8 @@ OPTIONS:
                               [possible values: pygments, kate, monochrome, breezedark, espresso, zenburn, haddock, tango]
         --no-gitignore         Ignore .gitignore files and process all files
         --no-toc               Don't include table of contents
+        --ignore <DIR>         Ignore specific directories (can be used multiple times)
+    -y, --yes                  Skip confirmation prompts
         --list-themes          List available syntax highlighting themes
         --list-languages       List supported programming languages
     -h, --help                 Print help
@@ -118,7 +126,7 @@ Scrollcast automatically detects and highlights syntax for 300+ programming lang
 - SQL, Docker, YAML, TOML, XML
 
 **Blockchain & Smart Contracts:**
-- **Solidity** (automatically downloaded and configured)
+- **Solidity** (using JavaScript syntax highlighting)
 - Vyper, Move, Cairo
 
 **Web Technologies:**
@@ -135,14 +143,17 @@ Use `--list-languages` to see all supported languages.
 
 ## 🎨 Available Themes
 
+**Light Background Themes:**
 - **kate** (default) - Balanced colors, excellent readability
 - **pygments** - Classic Python documentation style
+- **tango** - GNOME's colorful theme
+- **haddock** - Haskell documentation style
+- **monochrome** - Black and white for printing
+
+**Dark Background Themes:**
 - **zenburn** - Dark, low-contrast theme
 - **breezedark** - KDE's dark theme
 - **espresso** - Rich coffee-inspired colors
-- **monochrome** - Black and white for printing
-- **haddock** - Haskell documentation style
-- **tango** - GNOME's colorful theme
 
 Use `--list-themes` to see all available themes.
 
@@ -203,13 +214,13 @@ scrollcast large-repo/ -o output.pdf
 
 ### Solidity Development
 
-Solidity syntax highlighting is automatically configured:
+Solidity files are highlighted using JavaScript syntax highlighting for optimal compatibility:
 
 ```bash
-# First run downloads solidity.xml syntax definition
+# Process smart contracts with syntax highlighting
 scrollcast my-smart-contracts/ -o contracts.pdf
 
-# Subsequent runs use cached definition
+# Generate EPUB documentation
 scrollcast my-dapp/ -o dapp-code.epub -f epub
 ```
 

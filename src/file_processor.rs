@@ -26,6 +26,7 @@ pub struct FileProcessor {
     ignore_config: IgnoreConfig,
     universal_excludes: UniversalExcludes,
     respect_gitignore: bool,
+    ignored_directories: Vec<String>,
 }
 
 impl FileProcessor {
@@ -34,6 +35,7 @@ impl FileProcessor {
             ignore_config: IgnoreConfig::default(),
             universal_excludes: UniversalExcludes::new(),
             respect_gitignore: true,
+            ignored_directories: Vec::new(),
         }
     }
 
@@ -44,6 +46,11 @@ impl FileProcessor {
 
     pub fn with_gitignore_respect(mut self, respect: bool) -> Self {
         self.respect_gitignore = respect;
+        self
+    }
+
+    pub fn with_ignored_directories(mut self, dirs: Vec<String>) -> Self {
+        self.ignored_directories = dirs;
         self
     }
 
@@ -109,6 +116,16 @@ impl FileProcessor {
         // Show warning for large file counts
         if files.len() > 50 {
             eprintln!("⚠️  Warning: Processing {} files. This may take a while and result in a large document.", files.len());
+            
+            // Show top directories by file count
+            let dir_counts = self.get_directory_file_counts(&files);
+            if !dir_counts.is_empty() {
+                eprintln!("   Top directories by file count:");
+                for (dir, count) in dir_counts.iter().take(5) {
+                    eprintln!("     {} - {} files", dir, count);
+                }
+            }
+            
             eprintln!("   Consider using .gitignore or custom ignore rules to reduce the number of files.");
         }
 
@@ -122,6 +139,14 @@ impl FileProcessor {
         let relative_path = file_path.strip_prefix(root_path)
             .context("Failed to get relative path")?;
         let relative_path_str = relative_path.to_string_lossy();
+
+        // Check user-specified ignored directories
+        for ignored_dir in &self.ignored_directories {
+            if relative_path_str.starts_with(ignored_dir) || 
+               relative_path_str.starts_with(&format!("{}/", ignored_dir)) {
+                return Ok(false);
+            }
+        }
 
         // Check universal excludes
         if self.universal_excludes.should_exclude(file_path) {
@@ -145,6 +170,33 @@ impl FileProcessor {
         }
 
         Ok(true)
+    }
+
+    fn get_directory_file_counts(&self, files: &[FileInfo]) -> Vec<(String, usize)> {
+        use std::collections::HashMap;
+        
+        let mut dir_counts: HashMap<String, usize> = HashMap::new();
+        
+        for file in files {
+            let path = Path::new(&file.path);
+            let dir = if let Some(parent) = path.parent() {
+                if parent == Path::new("") {
+                    ".".to_string()
+                } else {
+                    parent.to_string_lossy().to_string()
+                }
+            } else {
+                ".".to_string()
+            };
+            
+            *dir_counts.entry(dir).or_insert(0) += 1;
+        }
+        
+        // Sort by count descending
+        let mut sorted: Vec<(String, usize)> = dir_counts.into_iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        
+        sorted
     }
 
     fn process_single_file(&self, file_path: &Path, root_path: &Path) -> Result<FileInfo> {
