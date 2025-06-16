@@ -17,10 +17,10 @@ use pandoc::{PandocConfig, PandocConverter, OutputFormat};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let matches = Command::new("git-to-pdf")
+    let matches = Command::new("scrollcast")
         .version("0.1.0")
         .author("heartcode <0xheartcode@gmail.com>")
-        .about("Convert Git repositories to beautifully formatted PDF/EPUB documents")
+        .about("Convert Git repositories to beautifully formatted documents")
         .arg(
             Arg::new("input")
                 .help("Input directory (git repository or regular folder)")
@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
     };
 
     // Print startup information
-    println!("{}", "🎨 Git to Document Converter".color(Color::Blue).bold());
+    println!("{}", "🎨 Scrollcast Document Converter".color(Color::Blue).bold());
     println!("📂 Input: {}", input_path.display());
     println!("📄 Output: {}", output_path.display());
     println!("🎯 Format: {}", format.clone().color(Color::Green));

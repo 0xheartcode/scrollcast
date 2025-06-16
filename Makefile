@@ -1,10 +1,10 @@
-# Git to PDF - Development Makefile
+# Scrollcast - Development Makefile
 
 .PHONY: help build test clean install lint fmt check release example docs all
 
 # Default target
 help: ## Show this help message
-	@echo "Git to PDF - Development Commands"
+	@echo "Scrollcast - Development Commands"
 	@echo "================================="
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -46,25 +46,25 @@ clean: ## Clean build artifacts
 
 # Example runs
 example-pdf: build ## Generate example PDF from test project
-	./target/debug/git-to-pdf test-project/ -o output/example.pdf
+	./target/debug/scrollcast test-project/ -o output/example.pdf
 
 example-epub: build ## Generate example EPUB from test project
-	./target/debug/git-to-pdf test-project/ -o output/example.epub -f epub
+	./target/debug/scrollcast test-project/ -o output/example.epub -f epub
 
 example-html: build ## Generate example HTML from test project
-	./target/debug/git-to-pdf test-project/ -o output/example.html -f html
+	./target/debug/scrollcast test-project/ -o output/example.html -f html
 
 example-markdown: build ## Generate example Markdown from test project
-	./target/debug/git-to-pdf test-project/ -o output/example.md -f markdown
+	./target/debug/scrollcast test-project/ -o output/example.md -f markdown
 
 example-all: example-pdf example-epub example-html example-markdown ## Generate all example formats
 
 # Self-documentation
 docs-pdf: release ## Generate PDF documentation of this project
-	./target/release/git-to-pdf . -o output/git-to-pdf-source.pdf
+	./target/release/scrollcast . -o output/scrollcast-source.pdf
 
 docs-epub: release ## Generate EPUB documentation of this project
-	./target/release/git-to-pdf . -o output/git-to-pdf-source.epub -f epub
+	./target/release/scrollcast . -o output/scrollcast-source.epub -f epub
 
 docs-all: docs-pdf docs-epub ## Generate all documentation formats
 
@@ -88,13 +88,13 @@ pre-release: all-checks example-all docs-all ## Prepare for release (run all che
 
 # Utility targets
 size: release ## Show binary size
-	@ls -lh target/release/git-to-pdf | awk '{print "Binary size: " $$5}'
+	@ls -lh target/release/scrollcast | awk '{print "Binary size: " $$5}'
 
 list-themes: build ## List available syntax highlighting themes
-	./target/debug/git-to-pdf --list-themes
+	./target/debug/scrollcast --list-themes
 
 list-languages: build ## List supported programming languages
-	./target/debug/git-to-pdf --list-languages
+	./target/debug/scrollcast --list-languages
 
 # Output directory management
 output-dir: ## Create output directory
@@ -112,7 +112,7 @@ watch-build: ## Watch for changes and build (requires: cargo install cargo-watch
 
 # Package information
 info: ## Show project information
-	@echo "Project: Git to PDF"
+	@echo "Project: Scrollcast"
 	@echo "Version: $$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')"
 	@echo "Rust version: $$(rustc --version)"
 	@echo "Cargo version: $$(cargo --version)"

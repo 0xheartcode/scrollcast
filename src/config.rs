@@ -125,14 +125,14 @@ impl Config {
     /// Load configuration from the current directory or user's home directory
     pub fn load_default() -> Result<Self> {
         // Try to load from current directory first
-        let local_config = Path::new("git-to-pdf.toml");
+        let local_config = Path::new("scrollcast.toml");
         if local_config.exists() {
             return Self::load_from_file(local_config);
         }
 
         // Try to load from home directory
         if let Some(home_dir) = dirs::home_dir() {
-            let global_config = home_dir.join(".git-to-pdf.toml");
+            let global_config = home_dir.join(".scrollcast.toml");
             if global_config.exists() {
                 return Self::load_from_file(global_config);
             }

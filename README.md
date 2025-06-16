@@ -1,4 +1,4 @@
-# Git to PDF 🦀📄
+# Scrollcast 🦀📄
 
 A modern Rust CLI tool that converts Git repositories into beautifully formatted documents (PDF, EPUB, HTML, Markdown) with professional syntax highlighting and theming.
 
@@ -36,41 +36,41 @@ brew install pandoc
 
 ```bash
 # Clone and build
-git clone https://github.com/0xheartcode/git-to-pdf
-cd git-to-pdf
+git clone https://github.com/0xheartcode/scrollcast
+cd scrollcast
 cargo build --release
 
 # Run the binary
-./target/release/git-to-pdf
+./target/release/scrollcast
 ```
 
 ### Basic Usage
 
 ```bash
 # Convert to PDF (default)
-git-to-pdf /path/to/repo -o output.pdf
+scrollcast /path/to/repo -o output.pdf
 
 # Convert to EPUB
-git-to-pdf /path/to/repo -o output.epub -f epub
+scrollcast /path/to/repo -o output.epub -f epub
 
 # Convert to HTML
-git-to-pdf /path/to/repo -o output.html -f html
+scrollcast /path/to/repo -o output.html -f html
 
 # Convert to Markdown
-git-to-pdf /path/to/repo -o output.md -f markdown
+scrollcast /path/to/repo -o output.md -f markdown
 
 # Use different theme
-git-to-pdf /path/to/repo -o output.pdf -t zenburn
+scrollcast /path/to/repo -o output.pdf -t zenburn
 
 # Ignore .gitignore files
-git-to-pdf /path/to/repo -o output.pdf --no-gitignore
+scrollcast /path/to/repo -o output.pdf --no-gitignore
 ```
 
 ## 📖 Command Line Options
 
 ```bash
 USAGE:
-    git-to-pdf [OPTIONS] <INPUT>
+    scrollcast [OPTIONS] <INPUT>
 
 ARGUMENTS:
     <INPUT>    Input directory (git repository or regular folder)
@@ -109,7 +109,7 @@ OPTIONS:
 
 ## 🌈 Syntax Highlighting
 
-Git to PDF automatically detects and highlights syntax for 300+ programming languages including:
+Scrollcast automatically detects and highlights syntax for 300+ programming languages including:
 
 **Popular Languages:**
 - Rust, JavaScript/TypeScript, Python, Go, Java, C/C++
@@ -150,7 +150,7 @@ Use `--list-themes` to see all available themes.
 
 ### Universal Exclusions
 
-Git to PDF automatically excludes:
+Scrollcast automatically excludes:
 
 **Directories:**
 - Version control: `.git`, `.svn`, `.hg`
@@ -193,12 +193,12 @@ For large repositories:
 
 ```bash
 # Use .gitignore to limit scope
-git-to-pdf large-repo/ -o output.pdf
+scrollcast large-repo/ -o output.pdf
 
 # Or create a custom .gitignore in the repo root
 echo "docs/" >> .gitignore
 echo "tests/" >> .gitignore
-git-to-pdf large-repo/ -o output.pdf
+scrollcast large-repo/ -o output.pdf
 ```
 
 ### Solidity Development
@@ -207,10 +207,10 @@ Solidity syntax highlighting is automatically configured:
 
 ```bash
 # First run downloads solidity.xml syntax definition
-git-to-pdf my-smart-contracts/ -o contracts.pdf
+scrollcast my-smart-contracts/ -o contracts.pdf
 
 # Subsequent runs use cached definition
-git-to-pdf my-dapp/ -o dapp-code.epub -f epub
+scrollcast my-dapp/ -o dapp-code.epub -f epub
 ```
 
 ## 🛠️ Development
@@ -219,8 +219,8 @@ git-to-pdf my-dapp/ -o dapp-code.epub -f epub
 
 ```bash
 # Clone the repository
-git clone https://github.com/0xheartcode/git-to-pdf
-cd git-to-pdf
+git clone https://github.com/0xheartcode/scrollcast
+cd scrollcast
 
 # Build in release mode
 cargo build --release
@@ -259,30 +259,30 @@ src/
 
 ```bash
 # Generate project documentation
-git-to-pdf ./my-project -o docs/codebase.pdf -t kate
+scrollcast ./my-project -o docs/codebase.pdf -t kate
 
 # Create EPUB for mobile reading
-git-to-pdf ./my-project -o docs/codebase.epub -f epub -t breezedark
+scrollcast ./my-project -o docs/codebase.epub -f epub -t breezedark
 ```
 
 ### Code Review
 
 ```bash
 # Generate HTML for web-based review
-git-to-pdf ./feature-branch -o review.html -f html --no-toc
+scrollcast ./feature-branch -o review.html -f html --no-toc
 
 # PDF with monochrome theme for printing
-git-to-pdf ./feature-branch -o review.pdf -t monochrome
+scrollcast ./feature-branch -o review.pdf -t monochrome
 ```
 
 ### Smart Contract Auditing
 
 ```bash
 # Process Solidity contracts
-git-to-pdf ./contracts -o audit.pdf -t zenburn
+scrollcast ./contracts -o audit.pdf -t zenburn
 
 # Include all files, even ignored ones
-git-to-pdf ./full-project --no-gitignore -o complete-audit.pdf
+scrollcast ./full-project --no-gitignore -o complete-audit.pdf
 ```
 
 ## 🤝 Contributing

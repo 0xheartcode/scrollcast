@@ -172,7 +172,7 @@ impl PandocConverter {
             .or_else(|| dirs::home_dir().map(|p| p.join(".local/share")))
             .context("Could not determine local data directory")?;
         
-        Ok(data_dir.join("git-to-pdf").join("syntax"))
+        Ok(data_dir.join("scrollcast").join("syntax"))
     }
 
     pub fn list_available_highlight_styles() -> Result<Vec<String>> {

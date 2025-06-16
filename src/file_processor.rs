@@ -49,7 +49,7 @@ impl FileProcessor {
     }
 
     pub fn load_ignore_config_from_path<P: AsRef<Path>>(mut self, path: P) -> Result<Self> {
-        let ignore_file_path = path.as_ref().join("git-to-pdf.ignore");
+        let ignore_file_path = path.as_ref().join("scrollcast.ignore");
         if ignore_file_path.exists() {
             let content = fs::read_to_string(&ignore_file_path)
                 .context("Failed to read ignore configuration file")?;

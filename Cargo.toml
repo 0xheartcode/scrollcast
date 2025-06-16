@@ -1,16 +1,16 @@
 [package]
-name = "git-to-pdf"
+name = "scrollcast"
 version = "0.1.0"
 edition = "2021"
 authors = ["heartcode <0xheartcode@gmail.com>"]
-description = "A fast Rust CLI tool for converting Git repositories to beautifully formatted PDF/EPUB documents"
+description = "A fast Rust CLI tool for converting Git repositories to beautifully formatted documents"
 license = "MIT"
-repository = "https://github.com/0xheartcode/git-to-pdf"
+repository = "https://github.com/0xheartcode/scrollcast"
 keywords = ["git", "pdf", "epub", "cli", "documentation", "code"]
 categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
-name = "git-to-pdf"
+name = "scrollcast"
 path = "src/main.rs"
 
 [dependencies]
