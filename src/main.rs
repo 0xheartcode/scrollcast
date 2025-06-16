@@ -4,6 +4,7 @@ use colorful::{Colorful, Color};
 use std::path::PathBuf;
 use std::fs;
 use tokio;
+use dialoguer::Confirm;
 
 mod config;
 mod file_processor;
@@ -76,6 +77,13 @@ async fn main() -> Result<()> {
                 .help("List supported programming languages")
                 .action(ArgAction::SetTrue)
         )
+        .arg(
+            Arg::new("yes")
+                .short('y')
+                .long("yes")
+                .help("Skip confirmation prompts")
+                .action(ArgAction::SetTrue)
+        )
         .get_matches();
 
     // Handle list commands
@@ -96,6 +104,7 @@ async fn main() -> Result<()> {
     let theme = matches.get_one::<String>("theme").unwrap().clone();
     let respect_gitignore = !matches.get_flag("no-gitignore");
     let include_toc = !matches.get_flag("no-toc");
+    let skip_confirmation = matches.get_flag("yes");
 
     // Parse output format
     let output_format = match format.as_str() {
@@ -139,6 +148,20 @@ async fn main() -> Result<()> {
     }
 
     println!("✅ Found {} files to process", files.len());
+
+    // Ask for confirmation unless -y flag is used
+    if !skip_confirmation {
+        let proceed = Confirm::new()
+            .with_prompt("Do you want to proceed with processing these files?")
+            .default(true)
+            .interact()
+            .context("Failed to get user confirmation")?;
+        
+        if !proceed {
+            println!("Operation cancelled by user.");
+            return Ok(());
+        }
+    }
 
     // Generate markdown
     println!("{}", "📝 Generating markdown...".color(Color::Cyan));

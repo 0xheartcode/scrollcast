@@ -53,8 +53,11 @@ impl MarkdownGenerator {
         markdown.push_str("## File Contents\n\n");
         
         for file in files {
+            // Add page break before each file (except the first one)
+            markdown.push_str("\n\\newpage\n\n");
             let sanitized_path = file.path.replace(['/', '\\'], "-").replace('.', "-");
             markdown.push_str(&format!("### {} {{#{sanitized_path}}}\n\n", file.path));
+            markdown.push_str(&format!("**File:** {} | **Size:** {}\n\n", file.path, MarkdownGenerator::format_file_size(file.size)));
             
             if let Some(language) = &file.language {
                 markdown.push_str(&format!("```{}\n", language));
@@ -70,12 +73,29 @@ impl MarkdownGenerator {
             
             markdown.push_str("```\n\n");
             
-            // Add file info
-            markdown.push_str(&format!("*File size: {} bytes*\n\n", file.size));
+            // Add file info with human-readable size
+            markdown.push_str(&format!("*File size: {}*\n\n", MarkdownGenerator::format_file_size(file.size)));
             markdown.push_str("---\n\n");
         }
 
         Ok(markdown)
+    }
+
+    pub fn format_file_size(size: usize) -> String {
+        const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+        let mut size_f = size as f64;
+        let mut unit_index = 0;
+        
+        while size_f >= 1024.0 && unit_index < UNITS.len() - 1 {
+            size_f /= 1024.0;
+            unit_index += 1;
+        }
+        
+        if unit_index == 0 {
+            format!("{} {}", size, UNITS[unit_index])
+        } else {
+            format!("{:.1} {}", size_f, UNITS[unit_index])
+        }
     }
 
     fn generate_file_tree(&self, files: &[FileInfo]) -> String {

@@ -106,11 +106,21 @@ impl PandocConverter {
         match self.config.output_format {
             OutputFormat::Pdf => {
                 cmd.arg("--pdf-engine=xelatex");
+                // Add line wrapping and formatting options
+                cmd.arg("--wrap=preserve");
+                cmd.arg("-V").arg("geometry:margin=1in");
+                cmd.arg("-V").arg("fontsize=10pt");
+                cmd.arg("-V").arg("mainfont=DejaVu Sans Mono");
                 if self.config.include_toc {
                     cmd.arg("--toc");
                 }
             },
             OutputFormat::Epub => {
+                // Add line wrapping for EPUB
+                cmd.arg("--wrap=preserve");
+                // Create temporary CSS file for EPUB
+                let temp_css = self.create_epub_css_file()?;
+                cmd.arg("--css").arg(&temp_css);
                 if self.config.include_toc {
                     cmd.arg("--toc");
                 }
@@ -118,6 +128,9 @@ impl PandocConverter {
             },
             OutputFormat::Html => {
                 cmd.arg("--standalone");
+                // Create temporary CSS file for HTML
+                let temp_css = self.create_html_css_file()?;
+                cmd.arg("--css").arg(&temp_css);
                 if self.config.include_toc {
                     cmd.arg("--toc");
                 }
@@ -173,6 +186,76 @@ impl PandocConverter {
             .context("Could not determine local data directory")?;
         
         Ok(data_dir.join("scrollcast").join("syntax"))
+    }
+
+    fn create_epub_css_file(&self) -> Result<PathBuf> {
+        let temp_dir = std::env::temp_dir();
+        let css_path = temp_dir.join("scrollcast_epub.css");
+        
+        let css_content = r#"
+code {
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+}
+
+pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    background-color: #f8f8f8;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+}
+"#;
+        
+        fs::write(&css_path, css_content)
+            .context("Failed to create EPUB CSS file")?;
+        
+        Ok(css_path)
+    }
+
+    fn create_html_css_file(&self) -> Result<PathBuf> {
+        let temp_dir = std::env::temp_dir();
+        let css_path = temp_dir.join("scrollcast_html.css");
+        
+        let css_content = r#"
+pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    background-color: #f8f8f8;
+    padding: 15px;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    font-family: 'Courier New', Consolas, Monaco, monospace;
+    font-size: 14px;
+    line-height: 1.4;
+    overflow-x: auto;
+}
+
+code {
+    font-family: 'Courier New', Consolas, Monaco, monospace;
+    background-color: #f1f1f1;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+"#;
+        
+        fs::write(&css_path, css_content)
+            .context("Failed to create HTML CSS file")?;
+        
+        Ok(css_path)
     }
 
     pub fn list_available_highlight_styles() -> Result<Vec<String>> {

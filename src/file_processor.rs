@@ -2,9 +2,8 @@ use anyhow::{Context, Result};
 use content_inspector::{inspect, ContentType};
 use std::fs;
 use std::path::Path;
-use walkdir::WalkDir;
 use serde::{Deserialize, Serialize};
-use git2::Repository;
+use ignore::WalkBuilder;
 
 use crate::markdown_generator::{FileInfo, MarkdownGenerator};
 
@@ -64,31 +63,53 @@ impl FileProcessor {
         let mut files = Vec::new();
         let root_path = path.as_ref();
 
-        // Try to get git repository for .gitignore support
-        let repo = if self.respect_gitignore {
-            Repository::open(root_path).ok()
+        // Use ignore crate for proper gitignore handling
+        let walker = if self.respect_gitignore {
+            WalkBuilder::new(root_path)
+                .git_ignore(true)
+                .git_global(true)
+                .git_exclude(true)
+                .hidden(false)
+                .follow_links(false)
+                .build()
         } else {
-            None
+            WalkBuilder::new(root_path)
+                .git_ignore(false)
+                .git_global(false)
+                .git_exclude(false)
+                .hidden(false)
+                .follow_links(false)
+                .build()
         };
 
-        for entry in WalkDir::new(root_path)
-            .follow_links(false)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            if entry.file_type().is_file() {
-                let file_path = entry.path();
-                
-                if self.should_process_file(file_path, root_path, repo.as_ref())? {
-                    match self.process_single_file(file_path, root_path) {
-                        Ok(file_info) => files.push(file_info),
-                        Err(e) => {
-                            eprintln!("Warning: Failed to process file {}: {}", file_path.display(), e);
-                            continue;
+        for result in walker {
+            match result {
+                Ok(entry) => {
+                    if entry.file_type().map_or(false, |ft| ft.is_file()) {
+                        let file_path = entry.path();
+                        
+                        if self.should_process_file_simple(file_path, root_path)? {
+                            match self.process_single_file(file_path, root_path) {
+                                Ok(file_info) => files.push(file_info),
+                                Err(e) => {
+                                    eprintln!("Warning: Failed to process file {}: {}", file_path.display(), e);
+                                    continue;
+                                }
+                            }
                         }
                     }
                 }
+                Err(e) => {
+                    eprintln!("Warning: Failed to read directory entry: {}", e);
+                    continue;
+                }
             }
+        }
+
+        // Show warning for large file counts
+        if files.len() > 50 {
+            eprintln!("⚠️  Warning: Processing {} files. This may take a while and result in a large document.", files.len());
+            eprintln!("   Consider using .gitignore or custom ignore rules to reduce the number of files.");
         }
 
         // Sort files by path for consistent output
@@ -96,7 +117,7 @@ impl FileProcessor {
         Ok(files)
     }
 
-    fn should_process_file(&self, file_path: &Path, root_path: &Path, repo: Option<&Repository>) -> Result<bool> {
+    fn should_process_file_simple(&self, file_path: &Path, root_path: &Path) -> Result<bool> {
         // Get relative path for checking
         let relative_path = file_path.strip_prefix(root_path)
             .context("Failed to get relative path")?;
@@ -105,15 +126,6 @@ impl FileProcessor {
         // Check universal excludes
         if self.universal_excludes.should_exclude(file_path) {
             return Ok(false);
-        }
-
-        // Check .gitignore if requested and repository is available
-        if let Some(repository) = repo {
-            if let Ok(status) = repository.status_file(relative_path) {
-                if status.contains(git2::Status::IGNORED) {
-                    return Ok(false);
-                }
-            }
         }
 
         // Check custom ignore configuration
