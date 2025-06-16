@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
                 .short('f')
                 .long("format")
                 .help("Output format")
-                .value_parser(["pdf", "epub", "html"])
+                .value_parser(["pdf", "epub", "html", "markdown"])
                 .default_value("pdf")
         )
         .arg(
@@ -102,6 +102,7 @@ async fn main() -> Result<()> {
         "pdf" => OutputFormat::Pdf,
         "epub" => OutputFormat::Epub,
         "html" => OutputFormat::Html,
+        "markdown" => OutputFormat::Markdown,
         _ => unreachable!(), // clap ensures this won't happen
     };
 

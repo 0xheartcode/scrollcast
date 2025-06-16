@@ -17,6 +17,7 @@ pub enum OutputFormat {
     Pdf,
     Epub,
     Html,
+    Markdown,
 }
 
 impl OutputFormat {
@@ -25,6 +26,7 @@ impl OutputFormat {
             OutputFormat::Pdf => "pdf",
             OutputFormat::Epub => "epub", 
             OutputFormat::Html => "html",
+            OutputFormat::Markdown => "md",
         }
     }
 }
@@ -103,7 +105,7 @@ impl PandocConverter {
         // Format-specific options
         match self.config.output_format {
             OutputFormat::Pdf => {
-                cmd.arg("--pdf-engine=pdflatex");
+                cmd.arg("--pdf-engine=xelatex");
                 if self.config.include_toc {
                     cmd.arg("--toc");
                 }
@@ -116,6 +118,13 @@ impl PandocConverter {
             },
             OutputFormat::Html => {
                 cmd.arg("--standalone");
+                if self.config.include_toc {
+                    cmd.arg("--toc");
+                }
+            },
+            OutputFormat::Markdown => {
+                // For markdown output, we can just copy the generated markdown file
+                // But we'll still use pandoc for consistency and potential processing
                 if self.config.include_toc {
                     cmd.arg("--toc");
                 }

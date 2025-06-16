@@ -265,7 +265,7 @@ impl UniversalExcludes {
                 
                 // Documents (binary formats)
                 ".pdf".to_string(), ".doc".to_string(), ".docx".to_string(), ".xls".to_string(),
-                ".xlsx".to_string(), ".ppt".to_string(), ".pptx".to_string(),
+                ".xlsx".to_string(), ".ppt".to_string(), ".pptx".to_string(), ".ps".to_string(),
                 
                 // Fonts
                 ".ttf".to_string(), ".otf".to_string(), ".woff".to_string(), ".woff2".to_string(),
