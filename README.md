@@ -298,20 +298,25 @@ scrollcast ./full-project --no-gitignore -o complete-audit.pdf
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit issues and pull requests.
+**We welcome contributions!** Whether you're fixing bugs, adding features, improving documentation, or sharing ideas - every contribution helps make Scrollcast better.
 
-### Development Setup
-1. Install Rust and Pandoc
-2. Fork the repository
-3. Create a feature branch
-4. Make your changes
-5. Add tests if applicable
-6. Run `cargo test` and `cargo fmt`
-7. Submit a pull request
+### Quick Start for Contributors
+- 🐛 **Found a bug?** Open an issue with details
+- 💡 **Have an idea?** Share it in discussions or issues  
+- 🔧 **Want to code?** Check out our [Contributing Guide](CONTRIBUTING.md)
+- 📚 **Improve docs?** README updates are always welcome
+
+### What We Need Help With
+- **New output formats** (Word, LaTeX, etc.)
+- **Better syntax highlighting** for more languages
+- **Performance improvements** for large repositories  
+- **Documentation and examples**
+
+See our [Contributing Guide](CONTRIBUTING.md) for detailed setup instructions and development workflow.
 
 ## 📄 License
 
-MIT License - see LICENSE file for details.
+MIT License
 
 ## 🙏 Acknowledgments
 
