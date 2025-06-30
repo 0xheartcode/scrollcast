@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary-suffix: ""
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            binary-suffix: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary-suffix: ".exe"
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            binary-suffix: ""
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary-suffix: ""
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Install musl tools
+      if: matrix.target == 'x86_64-unknown-linux-musl'
+      run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+    - name: Cache cargo registry
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo index
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo build
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build binary
+      run: cargo build --release --target ${{ matrix.target }}
+
+    - name: Create archive
+      shell: bash
+      run: |
+        binary_name="scrollcast${{ matrix.binary-suffix }}"
+        asset_name="scrollcast-${{ matrix.target }}"
+        
+        if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+          cp "target/${{ matrix.target }}/release/${binary_name}" "${asset_name}.exe"
+          7z a "${asset_name}.zip" "${asset_name}.exe"
+          echo "ASSET=${asset_name}.zip" >> $GITHUB_ENV
+        else
+          cp "target/${{ matrix.target }}/release/${binary_name}" "${asset_name}"
+          tar czf "${asset_name}.tar.gz" "${asset_name}"
+          echo "ASSET=${asset_name}.tar.gz" >> $GITHUB_ENV
+        fi
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ env.ASSET }}
+        path: ${{ env.ASSET }}
+
+    - name: Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ${{ env.ASSET }}
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
