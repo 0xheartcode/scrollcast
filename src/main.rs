@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Arg, ArgAction, Command};
 use colorful::{Colorful, Color};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs;
 use tokio;
 use dialoguer::Confirm;
@@ -13,7 +13,7 @@ mod pandoc;
 mod theme;
 
 use file_processor::FileProcessor;
-use markdown_generator::MarkdownGenerator;
+use markdown_generator::{FileInfo, MarkdownGenerator};
 use pandoc::{PandocConfig, PandocConverter, OutputFormat};
 
 #[tokio::main]
@@ -91,6 +91,20 @@ async fn main() -> Result<()> {
                 .action(ArgAction::Append)
                 .value_name("DIR")
         )
+        .arg(
+            Arg::new("verbose")
+                .short('v')
+                .long("verbose")
+                .help("Enable verbose logging")
+                .action(ArgAction::SetTrue)
+        )
+        .arg(
+            Arg::new("chunk-size")
+                .long("chunk-size")
+                .help("Process files in chunks of this size to reduce memory usage")
+                .value_parser(clap::value_parser!(usize))
+                .default_value("20")
+        )
         .get_matches();
 
     // Handle list commands
@@ -112,6 +126,8 @@ async fn main() -> Result<()> {
     let respect_gitignore = !matches.get_flag("no-gitignore");
     let include_toc = !matches.get_flag("no-toc");
     let skip_confirmation = matches.get_flag("yes");
+    let verbose = matches.get_flag("verbose");
+    let chunk_size = *matches.get_one::<usize>("chunk-size").unwrap();
     let ignored_dirs: Vec<String> = matches
         .get_many::<String>("ignore")
         .unwrap_or_default()
@@ -134,6 +150,10 @@ async fn main() -> Result<()> {
     println!("🎯 Format: {}", format.clone().color(Color::Green));
     println!("🎨 Theme: {}", theme.clone().color(Color::Yellow));
     println!("📁 Respect .gitignore: {}", if respect_gitignore { "Yes".color(Color::Green) } else { "No".color(Color::Red) });
+    if verbose {
+        println!("🔍 Verbose mode: {}", "Enabled".color(Color::Green));
+        println!("📦 Chunk size: {} files per chunk", chunk_size);
+    }
 
     // Validate input path
     if !input_path.exists() {
@@ -161,6 +181,19 @@ async fn main() -> Result<()> {
     }
 
     println!("✅ Found {} files to process", files.len());
+    
+    if verbose {
+        println!("📋 Files to process:");
+        for (i, file) in files.iter().enumerate() {
+            println!("   {}. {} ({} bytes)", i + 1, file.path, file.size);
+        }
+    }
+
+    // Determine if chunking is needed
+    let needs_chunking = files.len() > chunk_size;
+    if needs_chunking {
+        println!("📦 Processing {} files in chunks of {} to reduce memory usage", files.len(), chunk_size);
+    }
 
     // Ask for confirmation unless -y flag is used
     if !skip_confirmation {
@@ -182,17 +215,27 @@ async fn main() -> Result<()> {
         .and_then(|name| name.to_str())
         .unwrap_or("Repository");
 
-    let markdown_generator = MarkdownGenerator::new(include_toc, true);
-    let markdown_content = markdown_generator.generate_markdown(files, repo_name)
-        .context("Failed to generate markdown")?;
-
-    // Create temporary markdown file
     let temp_dir = std::env::temp_dir();
     let temp_markdown = temp_dir.join(format!("{}_temp.md", repo_name));
-    fs::write(&temp_markdown, markdown_content)
-        .context("Failed to write temporary markdown file")?;
+
+    if needs_chunking {
+        process_files_in_chunks(files, repo_name, chunk_size, &temp_markdown, include_toc, verbose).await
+            .context("Failed to process files in chunks")?;
+    } else {
+        let markdown_generator = MarkdownGenerator::new(include_toc, true);
+        let markdown_content = markdown_generator.generate_markdown(files, repo_name)
+            .context("Failed to generate markdown")?;
+        fs::write(&temp_markdown, &markdown_content)
+            .context("Failed to write temporary markdown file")?;
+    }
 
     println!("✅ Markdown generated");
+    
+    if verbose {
+        let markdown_size = fs::metadata(&temp_markdown)?.len();
+        println!("📄 Markdown file size: {} bytes", markdown_size);
+        println!("📂 Temporary markdown file: {}", temp_markdown.display());
+    }
 
     // Configure Pandoc
     let pandoc_config = PandocConfig {
@@ -207,7 +250,7 @@ async fn main() -> Result<()> {
 
     // Convert to final format
     println!("{}", "🔄 Converting to final format...".color(Color::Cyan));
-    converter.convert_markdown_to_document(&temp_markdown, output_path).await
+    converter.convert_markdown_to_document(&temp_markdown, output_path, verbose).await
         .context("Failed to convert markdown to final format")?;
 
     // Keep temporary file for debugging
@@ -231,6 +274,133 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn process_files_in_chunks(
+    files: Vec<FileInfo>,
+    repo_name: &str,
+    chunk_size: usize,
+    output_path: &Path,
+    include_toc: bool,
+    verbose: bool,
+) -> Result<()> {
+    let mut final_markdown = String::new();
+    
+    // Add title and metadata
+    final_markdown.push_str(&format!("# {}\n\n", repo_name));
+    final_markdown.push_str(&format!("Generated on: {}\n\n", chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")));
+    
+    // Add table of contents for all files
+    if include_toc {
+        final_markdown.push_str("## Table of Contents\n\n");
+        for file in &files {
+            let sanitized_path = file.path.replace(['/', '\\'], "-").replace('.', "-");
+            let escaped_path = escape_markdown_special_chars(&file.path);
+            final_markdown.push_str(&format!("- [{}](#{sanitized_path})\n", escaped_path));
+        }
+        final_markdown.push_str("\n");
+    }
+    
+    // Add file tree
+    final_markdown.push_str("## File Structure\n\n");
+    final_markdown.push_str("```\n");
+    for file in &files {
+        final_markdown.push_str(&format!("{}\n", file.path));
+    }
+    final_markdown.push_str("```\n\n");
+    
+    // Add file contents section header
+    final_markdown.push_str("## File Contents\n\n");
+    
+    // Process files in chunks
+    let chunks: Vec<&[FileInfo]> = files.chunks(chunk_size).collect();
+    let total_chunks = chunks.len();
+    let mut global_page_number = 1; // Start after title/TOC page
+    let mut file_counter = 0;
+    
+    for (chunk_index, chunk) in chunks.iter().enumerate() {
+        if verbose {
+            println!("📄 Processing chunk {} of {} ({} files)", 
+                chunk_index + 1, total_chunks, chunk.len());
+        }
+        
+        // Process each file in the chunk
+        for file in chunk.iter() {
+            file_counter += 1;
+            global_page_number += 1; // Each file gets a new page
+            
+            // Add page break before each file (except the first one)
+            final_markdown.push_str("\n\\newpage\n\n");
+            let sanitized_path = file.path.replace(['/', '\\'], "-").replace('.', "-");
+            let escaped_path = escape_markdown_special_chars(&file.path);
+            
+            // Add file header with page numbers
+            final_markdown.push_str(&format!("### {} {{#{sanitized_path}}}\n\n", escaped_path));
+            final_markdown.push_str(&format!("**File:** {} | **Size:** {} | **File #{} | Page {}**\n\n", 
+                escaped_path, format_file_size(file.size), file_counter, global_page_number));
+            
+            if let Some(language) = &file.language {
+                final_markdown.push_str(&format!("```{}\n", language));
+            } else {
+                final_markdown.push_str("```\n");
+            }
+            
+            final_markdown.push_str(&file.content);
+            
+            if !file.content.ends_with('\n') {
+                final_markdown.push('\n');
+            }
+            
+            final_markdown.push_str("```\n\n");
+            
+            // Add file info with page numbering
+            final_markdown.push_str(&format!("*File size: {} | File #{} of {} | Page {}*\n\n", 
+                format_file_size(file.size), file_counter, files.len(), global_page_number));
+            final_markdown.push_str("---\n\n");
+        }
+        
+        // Optional: Force garbage collection after each chunk to free memory
+        // This helps with large repositories
+        if chunk_index < total_chunks - 1 {
+            // Allow some time for garbage collection between chunks
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        }
+    }
+    
+    // Write the final markdown file
+    fs::write(output_path, final_markdown)
+        .context("Failed to write chunked markdown file")?;
+    
+    Ok(())
+}
+
+fn escape_markdown_special_chars(text: &str) -> String {
+    // Escape characters that have special meaning in markdown/LaTeX outside code blocks
+    text.replace('_', "\\_")     // Escape underscores that could be interpreted as emphasis
+        .replace('#', "\\#")     // Escape hash symbols
+        .replace('$', "\\$")     // Escape dollar signs (LaTeX math mode)
+        .replace('%', "\\%")     // Escape percent signs (LaTeX comments)
+        .replace('&', "\\&")     // Escape ampersands
+        .replace('^', "\\^")     // Escape carets
+        .replace('{', "\\{")     // Escape curly braces
+        .replace('}', "\\}")
+}
+
+fn format_file_size(size: usize) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    let mut size_f = size as f64;
+    let mut unit_index = 0;
+    
+    while size_f >= 1024.0 && unit_index < UNITS.len() - 1 {
+        size_f /= 1024.0;
+        unit_index += 1;
+    }
+    
+    if unit_index == 0 {
+        format!("{} {}", size, UNITS[unit_index])
+    } else {
+        format!("{:.1} {}", size_f, UNITS[unit_index])
+    }
 }
 
 fn list_themes() -> Result<()> {

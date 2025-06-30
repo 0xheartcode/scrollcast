@@ -77,7 +77,7 @@ impl PandocConverter {
         Ok(())
     }
 
-    pub async fn convert_markdown_to_document(&self, input_path: &Path, output_path: &Path) -> Result<()> {
+    pub async fn convert_markdown_to_document(&self, input_path: &Path, output_path: &Path, verbose: bool) -> Result<()> {
         // Ensure Solidity support is set up
         let solidity_xml = self.setup_solidity_support().await?;
 
@@ -145,7 +145,9 @@ impl PandocConverter {
         }
 
         println!("🔄 Converting with Pandoc...");
-        println!("📝 Command: {:?}", cmd);
+        if verbose {
+            println!("📝 Command: {:?}", cmd);
+        }
         
         // Execute pandoc
         let output = cmd.output()

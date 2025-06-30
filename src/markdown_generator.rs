@@ -36,7 +36,8 @@ impl MarkdownGenerator {
             markdown.push_str("## Table of Contents\n\n");
             for file in &files {
                 let sanitized_path = file.path.replace(['/', '\\'], "-").replace('.', "-");
-                markdown.push_str(&format!("- [{}](#{sanitized_path})\n", file.path));
+                let escaped_path = self.escape_markdown_special_chars(&file.path);
+                markdown.push_str(&format!("- [{}](#{sanitized_path})\n", escaped_path));
             }
             markdown.push_str("\n");
         }
@@ -52,12 +53,20 @@ impl MarkdownGenerator {
         // File contents
         markdown.push_str("## File Contents\n\n");
         
-        for file in files {
+        let total_files = files.len();
+        let mut global_page_number = 1; // Start after title/TOC page
+        
+        for (file_index, file) in files.into_iter().enumerate() {
+            let file_counter = file_index + 1;
+            global_page_number += 1; // Each file gets a new page
+            
             // Add page break before each file (except the first one)
             markdown.push_str("\n\\newpage\n\n");
             let sanitized_path = file.path.replace(['/', '\\'], "-").replace('.', "-");
-            markdown.push_str(&format!("### {} {{#{sanitized_path}}}\n\n", file.path));
-            markdown.push_str(&format!("**File:** {} | **Size:** {}\n\n", file.path, MarkdownGenerator::format_file_size(file.size)));
+            let escaped_path = self.escape_markdown_special_chars(&file.path);
+            markdown.push_str(&format!("### {} {{#{sanitized_path}}}\n\n", escaped_path));
+            markdown.push_str(&format!("**File:** {} | **Size:** {} | **File #{} | Page {}**\n\n", 
+                escaped_path, MarkdownGenerator::format_file_size(file.size), file_counter, global_page_number));
             
             if let Some(language) = &file.language {
                 markdown.push_str(&format!("```{}\n", language));
@@ -73,8 +82,9 @@ impl MarkdownGenerator {
             
             markdown.push_str("```\n\n");
             
-            // Add file info with human-readable size
-            markdown.push_str(&format!("*File size: {}*\n\n", MarkdownGenerator::format_file_size(file.size)));
+            // Add file info with page numbering
+            markdown.push_str(&format!("*File size: {} | File #{} of {} | Page {}*\n\n", 
+                MarkdownGenerator::format_file_size(file.size), file_counter, total_files, global_page_number));
             markdown.push_str("---\n\n");
         }
 
@@ -164,6 +174,18 @@ impl MarkdownGenerator {
         };
 
         Some(language.to_string())
+    }
+
+    fn escape_markdown_special_chars(&self, text: &str) -> String {
+        // Escape characters that have special meaning in markdown/LaTeX outside code blocks
+        text.replace('_', "\\_")     // Escape underscores that could be interpreted as emphasis
+            .replace('#', "\\#")     // Escape hash symbols
+            .replace('$', "\\$")     // Escape dollar signs (LaTeX math mode)
+            .replace('%', "\\%")     // Escape percent signs (LaTeX comments)
+            .replace('&', "\\&")     // Escape ampersands
+            .replace('^', "\\^")     // Escape carets
+            .replace('{', "\\{")     // Escape curly braces
+            .replace('}', "\\}")
     }
 }
 
