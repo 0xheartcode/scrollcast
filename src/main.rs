@@ -112,6 +112,13 @@ async fn main() -> Result<()> {
                 .help("Maximum memory usage in MB (default: 80% of available RAM)")
                 .value_parser(clap::value_parser!(u64))
         )
+        .arg(
+            Arg::new("max-file-size")
+                .long("max-file-size")
+                .help("Maximum file size to process in MB (default: 50MB, files larger will be truncated)")
+                .value_parser(clap::value_parser!(u64))
+                .default_value("50")
+        )
         .get_matches();
 
     // Handle list commands
@@ -136,6 +143,7 @@ async fn main() -> Result<()> {
     let verbose = matches.get_flag("verbose");
     let chunk_size = *matches.get_one::<usize>("chunk-size").unwrap();
     let memory_limit_mb = matches.get_one::<u64>("memory-limit").copied();
+    let max_file_size_mb = *matches.get_one::<u64>("max-file-size").unwrap();
     let ignored_dirs: Vec<String> = matches
         .get_many::<String>("ignore")
         .unwrap_or_default()
@@ -209,6 +217,17 @@ async fn main() -> Result<()> {
     let total_size: usize = files.iter().map(|f| f.size).sum();
     let avg_file_size = if files.len() > 0 { total_size / files.len() } else { 0 };
     let large_files = files.iter().filter(|f| f.size > 50_000).count(); // Files > 50KB
+    let huge_files = files.iter().filter(|f| f.size > 10_000_000).count(); // Files > 10MB
+    let max_file_size = files.iter().map(|f| f.size).max().unwrap_or(0);
+    
+    // Check for extremely large files that need special handling
+    if huge_files > 0 {
+        println!("⚠️  Warning: Found {} files larger than 10MB. Largest file: {}", 
+            huge_files, format_file_size(max_file_size));
+        if max_file_size > 50_000_000 { // 50MB+
+            println!("🚨 Files over 50MB may cause memory issues. Consider using --ignore to exclude them.");
+        }
+    }
     
     // Intelligent chunking logic
     let effective_chunk_size = if files.len() > 10 || total_size > 1_000_000 || large_files > 5 {
@@ -233,6 +252,10 @@ async fn main() -> Result<()> {
         if verbose {
             println!("📊 Repository stats: {} files, {} total, avg {} per file, {} large files (>50KB)", 
                 files.len(), format_file_size(total_size), format_file_size(avg_file_size), large_files);
+            if huge_files > 0 {
+                println!("📊 Large file stats: {} files >10MB, largest: {}", 
+                    huge_files, format_file_size(max_file_size));
+            }
         }
     }
 
@@ -260,7 +283,7 @@ async fn main() -> Result<()> {
     let temp_markdown = temp_dir.join(format!("{}_temp.md", repo_name));
 
     if needs_chunking {
-        process_files_in_chunks(files, repo_name, effective_chunk_size, &temp_markdown, include_toc, verbose, memory_limit).await
+        process_files_in_chunks(files, repo_name, effective_chunk_size, &temp_markdown, include_toc, verbose, memory_limit, max_file_size_mb).await
             .context("Failed to process files in chunks")?;
     } else {
         let markdown_generator = MarkdownGenerator::new(include_toc, true);
@@ -325,6 +348,7 @@ async fn process_files_in_chunks(
     include_toc: bool,
     verbose: bool,
     memory_limit_mb: u64,
+    max_file_size_mb: u64,
 ) -> Result<()> {
     let mut sys = System::new();
     let mut final_markdown = String::new();
@@ -375,8 +399,13 @@ async fn process_files_in_chunks(
             if verbose {
                 sys.refresh_memory();
                 let used_memory_mb = sys.used_memory() / 1024 / 1024;
+                let file_size_str = if file.size > 10_000_000 {
+                    format!("{} ⚠️", format_file_size(file.size))
+                } else {
+                    format_file_size(file.size)
+                };
                 println!("   📄 Processing file {}/{}: {} ({}) [Memory: {} MB/{} MB]", 
-                    file_counter, files.len(), file.path, format_file_size(file.size), 
+                    file_counter, files.len(), file.path, file_size_str, 
                     used_memory_mb, memory_limit_mb);
                 
                 if used_memory_mb > memory_limit_mb {
@@ -384,6 +413,17 @@ async fn process_files_in_chunks(
                         used_memory_mb, memory_limit_mb);
                 }
             }
+            
+            // Handle very large files to prevent memory issues
+            let max_file_size_bytes = max_file_size_mb * 1024 * 1024;
+            let processed_content = if file.size > max_file_size_bytes as usize {
+                if verbose {
+                    println!("   🔄 File too large ({}), showing first 100KB + summary", format_file_size(file.size));
+                }
+                truncate_large_file_content(&file.content, file.size)
+            } else {
+                process_content_for_latex(&file.content)
+            };
             
             // Add page break before each file (except the first one)
             final_markdown.push_str("\n\\newpage\n\n");
@@ -401,8 +441,6 @@ async fn process_files_in_chunks(
                 final_markdown.push_str("```\n");
             }
             
-            // Process content to prevent LaTeX errors
-            let processed_content = process_content_for_latex(&file.content);
             final_markdown.push_str(&processed_content);
             
             if !file.content.ends_with('\n') {
@@ -492,6 +530,50 @@ fn process_content_for_latex(content: &str) -> String {
     }
     
     processed_lines.join("\n")
+}
+
+fn truncate_large_file_content(content: &str, original_size: usize) -> String {
+    const PREVIEW_SIZE: usize = 100_000; // Show first 100KB
+    const SAMPLE_SIZE: usize = 10_000;   // Then 10KB samples
+    const MAX_SAMPLES: usize = 5;        // Max 5 samples
+    
+    if content.len() <= PREVIEW_SIZE {
+        return process_content_for_latex(content);
+    }
+    
+    let mut result = String::new();
+    
+    // Add first part
+    let preview_end = std::cmp::min(PREVIEW_SIZE, content.len());
+    result.push_str(&process_content_for_latex(&content[..preview_end]));
+    result.push_str("\n\n");
+    result.push_str(&format!("... [File continues for {} more] ...\n\n", 
+        format_file_size(original_size - preview_end)));
+    
+    // Add samples from the middle and end
+    let remaining = content.len() - preview_end;
+    if remaining > SAMPLE_SIZE * 2 {
+        for i in 1..=MAX_SAMPLES {
+            let sample_start = preview_end + (remaining * i) / (MAX_SAMPLES + 1);
+            let sample_end = std::cmp::min(sample_start + SAMPLE_SIZE, content.len());
+            
+            if sample_start < content.len() {
+                result.push_str(&format!("\n--- Sample {} (around {}%) ---\n", 
+                    i, (sample_start * 100) / content.len()));
+                result.push_str(&process_content_for_latex(&content[sample_start..sample_end]));
+                result.push_str("\n");
+            }
+        }
+    }
+    
+    // Add summary
+    result.push_str(&format!("\n\n--- File Summary ---\n"));
+    result.push_str(&format!("Total size: {}\n", format_file_size(original_size)));
+    result.push_str(&format!("Lines shown: ~{} of ~{}\n", 
+        result.lines().count(), content.lines().count()));
+    result.push_str("Note: Large file truncated to prevent memory issues.\n");
+    
+    result
 }
 
 fn list_themes() -> Result<()> {
