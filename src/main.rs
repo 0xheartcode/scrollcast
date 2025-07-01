@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use tokio;
 use dialoguer::Confirm;
+use sysinfo::System;
 
 mod config;
 mod file_processor;
@@ -105,6 +106,12 @@ async fn main() -> Result<()> {
                 .value_parser(clap::value_parser!(usize))
                 .default_value("20")
         )
+        .arg(
+            Arg::new("memory-limit")
+                .long("memory-limit")
+                .help("Maximum memory usage in MB (default: 80% of available RAM)")
+                .value_parser(clap::value_parser!(u64))
+        )
         .get_matches();
 
     // Handle list commands
@@ -128,11 +135,19 @@ async fn main() -> Result<()> {
     let skip_confirmation = matches.get_flag("yes");
     let verbose = matches.get_flag("verbose");
     let chunk_size = *matches.get_one::<usize>("chunk-size").unwrap();
+    let memory_limit_mb = matches.get_one::<u64>("memory-limit").copied();
     let ignored_dirs: Vec<String> = matches
         .get_many::<String>("ignore")
         .unwrap_or_default()
         .map(|s| s.to_string())
         .collect();
+
+    // Initialize system info for memory monitoring
+    let mut sys = System::new();
+    sys.refresh_memory();
+    
+    let total_memory_mb = sys.total_memory() / 1024 / 1024;
+    let memory_limit = memory_limit_mb.unwrap_or(total_memory_mb * 80 / 100); // 80% of total RAM by default
 
     // Parse output format
     let output_format = match format.as_str() {
@@ -153,6 +168,7 @@ async fn main() -> Result<()> {
     if verbose {
         println!("🔍 Verbose mode: {}", "Enabled".color(Color::Green));
         println!("📦 Chunk size: {} files per chunk", chunk_size);
+        println!("🧠 Memory limit: {} MB ({} MB total)", memory_limit, total_memory_mb);
     }
 
     // Validate input path
@@ -185,14 +201,39 @@ async fn main() -> Result<()> {
     if verbose {
         println!("📋 Files to process:");
         for (i, file) in files.iter().enumerate() {
-            println!("   {}. {} ({} bytes)", i + 1, file.path, file.size);
+            println!("   {}. {} ({})", i + 1, file.path, format_file_size(file.size));
         }
     }
 
-    // Determine if chunking is needed
-    let needs_chunking = files.len() > chunk_size;
+    // Determine intelligent chunk sizing
+    let total_size: usize = files.iter().map(|f| f.size).sum();
+    let avg_file_size = if files.len() > 0 { total_size / files.len() } else { 0 };
+    let large_files = files.iter().filter(|f| f.size > 50_000).count(); // Files > 50KB
+    
+    // Intelligent chunking logic
+    let effective_chunk_size = if files.len() > 10 || total_size > 1_000_000 || large_files > 5 {
+        // Use file-by-file processing for large repos or large files
+        1
+    } else if files.len() > 5 || avg_file_size > 10_000 {
+        // Use small chunks for medium repos
+        3
+    } else {
+        // Use default chunk size for small repos
+        chunk_size
+    };
+    
+    let needs_chunking = files.len() > effective_chunk_size;
     if needs_chunking {
-        println!("📦 Processing {} files in chunks of {} to reduce memory usage", files.len(), chunk_size);
+        if effective_chunk_size == 1 {
+            println!("📄 Processing {} files one-by-one for optimal memory usage", files.len());
+        } else {
+            println!("📦 Processing {} files in chunks of {} to reduce memory usage", files.len(), effective_chunk_size);
+        }
+        
+        if verbose {
+            println!("📊 Repository stats: {} files, {} total, avg {} per file, {} large files (>50KB)", 
+                files.len(), format_file_size(total_size), format_file_size(avg_file_size), large_files);
+        }
     }
 
     // Ask for confirmation unless -y flag is used
@@ -219,7 +260,7 @@ async fn main() -> Result<()> {
     let temp_markdown = temp_dir.join(format!("{}_temp.md", repo_name));
 
     if needs_chunking {
-        process_files_in_chunks(files, repo_name, chunk_size, &temp_markdown, include_toc, verbose).await
+        process_files_in_chunks(files, repo_name, effective_chunk_size, &temp_markdown, include_toc, verbose, memory_limit).await
             .context("Failed to process files in chunks")?;
     } else {
         let markdown_generator = MarkdownGenerator::new(include_toc, true);
@@ -283,7 +324,9 @@ async fn process_files_in_chunks(
     output_path: &Path,
     include_toc: bool,
     verbose: bool,
+    memory_limit_mb: u64,
 ) -> Result<()> {
+    let mut sys = System::new();
     let mut final_markdown = String::new();
     
     // Add title and metadata
@@ -329,6 +372,19 @@ async fn process_files_in_chunks(
             file_counter += 1;
             global_page_number += 1; // Each file gets a new page
             
+            if verbose {
+                sys.refresh_memory();
+                let used_memory_mb = sys.used_memory() / 1024 / 1024;
+                println!("   📄 Processing file {}/{}: {} ({}) [Memory: {} MB/{} MB]", 
+                    file_counter, files.len(), file.path, format_file_size(file.size), 
+                    used_memory_mb, memory_limit_mb);
+                
+                if used_memory_mb > memory_limit_mb {
+                    println!("⚠️  Warning: Memory usage ({} MB) exceeds limit ({} MB)", 
+                        used_memory_mb, memory_limit_mb);
+                }
+            }
+            
             // Add page break before each file (except the first one)
             final_markdown.push_str("\n\\newpage\n\n");
             let sanitized_path = file.path.replace(['/', '\\'], "-").replace('.', "-");
@@ -345,7 +401,9 @@ async fn process_files_in_chunks(
                 final_markdown.push_str("```\n");
             }
             
-            final_markdown.push_str(&file.content);
+            // Process content to prevent LaTeX errors
+            let processed_content = process_content_for_latex(&file.content);
+            final_markdown.push_str(&processed_content);
             
             if !file.content.ends_with('\n') {
                 final_markdown.push('\n');
@@ -401,6 +459,39 @@ fn format_file_size(size: usize) -> String {
     } else {
         format!("{:.1} {}", size_f, UNITS[unit_index])
     }
+}
+
+fn process_content_for_latex(content: &str) -> String {
+    // Break very long lines to prevent LaTeX "dimension too large" errors
+    let lines: Vec<&str> = content.lines().collect();
+    let mut processed_lines = Vec::new();
+    
+    for line in lines {
+        if line.len() > 100 {
+            // Break long lines at reasonable breakpoints
+            let mut current_line = String::new();
+            let chars: Vec<char> = line.chars().collect();
+            
+            for &ch in chars.iter() {
+                current_line.push(ch);
+                
+                // Break at 100 characters or at natural breakpoints
+                if current_line.len() >= 100 && (ch == ' ' || ch == ',' || ch == ';' || ch == ')' || ch == '}') {
+                    processed_lines.push(current_line.clone());
+                    current_line.clear();
+                }
+            }
+            
+            // Add remaining characters
+            if !current_line.is_empty() {
+                processed_lines.push(current_line);
+            }
+        } else {
+            processed_lines.push(line.to_string());
+        }
+    }
+    
+    processed_lines.join("\n")
 }
 
 fn list_themes() -> Result<()> {

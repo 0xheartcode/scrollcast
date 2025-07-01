@@ -45,6 +45,9 @@ dirs = "5.0"
 # Date and time
 chrono = { version = "0.4", features = ["serde"] }
 
+# System monitoring
+sysinfo = "0.31"
+
 [dev-dependencies]
 tempfile = "3.8"
 assert_cmd = "2.0"

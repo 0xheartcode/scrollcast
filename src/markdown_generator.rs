@@ -74,7 +74,9 @@ impl MarkdownGenerator {
                 markdown.push_str("```\n");
             }
             
-            markdown.push_str(&file.content);
+            // Process content to prevent LaTeX errors
+            let processed_content = self.process_content_for_latex(&file.content);
+            markdown.push_str(&processed_content);
             
             if !file.content.ends_with('\n') {
                 markdown.push('\n');
@@ -186,6 +188,39 @@ impl MarkdownGenerator {
             .replace('^', "\\^")     // Escape carets
             .replace('{', "\\{")     // Escape curly braces
             .replace('}', "\\}")
+    }
+
+    fn process_content_for_latex(&self, content: &str) -> String {
+        // Break very long lines to prevent LaTeX "dimension too large" errors
+        let lines: Vec<&str> = content.lines().collect();
+        let mut processed_lines = Vec::new();
+        
+        for line in lines {
+            if line.len() > 100 {
+                // Break long lines at reasonable breakpoints
+                let mut current_line = String::new();
+                let chars: Vec<char> = line.chars().collect();
+                
+                for (i, &ch) in chars.iter().enumerate() {
+                    current_line.push(ch);
+                    
+                    // Break at 100 characters or at natural breakpoints
+                    if current_line.len() >= 100 && (ch == ' ' || ch == ',' || ch == ';' || ch == ')' || ch == '}') {
+                        processed_lines.push(current_line.clone());
+                        current_line.clear();
+                    }
+                }
+                
+                // Add remaining characters
+                if !current_line.is_empty() {
+                    processed_lines.push(current_line);
+                }
+            } else {
+                processed_lines.push(line.to_string());
+            }
+        }
+        
+        processed_lines.join("\n")
     }
 }
 

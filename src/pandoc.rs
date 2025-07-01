@@ -106,11 +106,16 @@ impl PandocConverter {
         match self.config.output_format {
             OutputFormat::Pdf => {
                 cmd.arg("--pdf-engine=xelatex");
-                // Add line wrapping and formatting options
-                cmd.arg("--wrap=preserve");
-                cmd.arg("-V").arg("geometry:margin=1in");
-                cmd.arg("-V").arg("fontsize=10pt");
-                // Don't force monospace font to allow syntax highlighting themes
+                // Add line wrapping and formatting options for large code blocks
+                cmd.arg("--wrap=auto");
+                cmd.arg("-V").arg("geometry:margin=0.8in");
+                cmd.arg("-V").arg("fontsize=9pt");
+                cmd.arg("-V").arg("linestretch=1.1");
+                // Fix for large code blocks causing "dimension too large" errors
+                cmd.arg("-V").arg("documentclass=article");
+                cmd.arg("-V").arg("pagestyle=plain");
+                // Break long lines in code blocks
+                cmd.arg("--listings");
                 if self.config.include_toc {
                     cmd.arg("--toc");
                 }
