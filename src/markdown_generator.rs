@@ -24,7 +24,7 @@ impl MarkdownGenerator {
         }
     }
 
-    pub fn generate_markdown(&self, files: Vec<FileInfo>, repo_name: &str) -> Result<String> {
+    pub fn generate_markdown(&self, files: &[FileInfo], repo_name: &str) -> Result<String> {
         let mut markdown = String::new();
 
         // Title and metadata
@@ -34,7 +34,7 @@ impl MarkdownGenerator {
         // Table of contents
         if self.include_toc {
             markdown.push_str("## Table of Contents\n\n");
-            for file in &files {
+            for file in files {
                 let sanitized_path = file.path.replace(['/', '\\'], "-").replace('.', "-");
                 let escaped_path = self.escape_markdown_special_chars(&file.path);
                 markdown.push_str(&format!("- [{}](#{sanitized_path})\n", escaped_path));
@@ -53,20 +53,19 @@ impl MarkdownGenerator {
         // File contents
         markdown.push_str("## File Contents\n\n");
         
-        let total_files = files.len();
-        let mut global_page_number = 1; // Start after title/TOC page
+        let _total_files = files.len();
+        let mut _global_page_number = 1; // Start after title/TOC page
         
-        for (file_index, file) in files.into_iter().enumerate() {
-            let file_counter = file_index + 1;
-            global_page_number += 1; // Each file gets a new page
+        for (file_index, file) in files.iter().enumerate() {
+            let _file_counter = file_index + 1;
+            _global_page_number += 1; // Each file gets a new page
             
             // Add page break before each file (except the first one)
             markdown.push_str("\n\\newpage\n\n");
             let sanitized_path = file.path.replace(['/', '\\'], "-").replace('.', "-");
             let escaped_path = self.escape_markdown_special_chars(&file.path);
             markdown.push_str(&format!("### {} {{#{sanitized_path}}}\n\n", escaped_path));
-            markdown.push_str(&format!("**File:** {} | **Size:** {} | **File #{} | Page {}**\n\n", 
-                escaped_path, MarkdownGenerator::format_file_size(file.size), file_counter, global_page_number));
+            markdown.push_str(&format!("**Size:** {}\n\n", MarkdownGenerator::format_file_size(file.size)));
             
             if let Some(language) = &file.language {
                 markdown.push_str(&format!("```{}\n", language));
@@ -78,15 +77,12 @@ impl MarkdownGenerator {
             let processed_content = self.process_content_for_latex(&file.content);
             markdown.push_str(&processed_content);
             
-            if !file.content.ends_with('\n') {
+            // Ensure there's always a newline before closing backticks
+            if !processed_content.ends_with('\n') {
                 markdown.push('\n');
             }
             
             markdown.push_str("```\n\n");
-            
-            // Add file info with page numbering
-            markdown.push_str(&format!("*File size: {} | File #{} of {} | Page {}*\n\n", 
-                MarkdownGenerator::format_file_size(file.size), file_counter, total_files, global_page_number));
             markdown.push_str("---\n\n");
         }
 
@@ -135,6 +131,20 @@ impl MarkdownGenerator {
 
     pub fn detect_language(file_path: &str) -> Option<String> {
         let path = Path::new(file_path);
+        
+        // Handle special cases first
+        if let Some(file_name) = path.file_name() {
+            let file_name_str = file_name.to_string_lossy();
+            // Handle .env files and variants like .env.local, .env.production, etc.
+            if file_name_str.starts_with(".env") {
+                return Some("bash".to_string());
+            }
+            // Handle Dockerfile variants
+            if file_name_str.to_lowercase().starts_with("dockerfile") {
+                return Some("dockerfile".to_string());
+            }
+        }
+        
         let extension = path.extension()?.to_str()?;
         
         let language = match extension.to_lowercase().as_str() {
@@ -169,7 +179,8 @@ impl MarkdownGenerator {
             "r" => "r",
             "sql" => "sql",
             "dockerfile" => "dockerfile",
-            "sol" => "javascript",  // Use JavaScript highlighting for Solidity as fallback
+            "env" => "bash",  // Environment files use shell-like syntax
+            "sol" => "solidity",
             "vy" => "python",     // Vyper (use python highlighting as fallback)
             "move" => "rust",     // Move language (use rust as fallback)
             _ => return None,
@@ -201,7 +212,7 @@ impl MarkdownGenerator {
                 let mut current_line = String::new();
                 let chars: Vec<char> = line.chars().collect();
                 
-                for (i, &ch) in chars.iter().enumerate() {
+                for (_i, &ch) in chars.iter().enumerate() {
                     current_line.push(ch);
                     
                     // Break at 100 characters or at natural breakpoints

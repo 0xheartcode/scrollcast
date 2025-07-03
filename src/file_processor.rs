@@ -39,6 +39,7 @@ impl FileProcessor {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_ignore_config(mut self, config: IgnoreConfig) -> Self {
         self.ignore_config = config;
         self
@@ -54,6 +55,7 @@ impl FileProcessor {
         self
     }
 
+    #[allow(dead_code)]
     pub fn load_ignore_config_from_path<P: AsRef<Path>>(mut self, path: P) -> Result<Self> {
         let ignore_file_path = path.as_ref().join("scrollcast.ignore");
         if ignore_file_path.exists() {

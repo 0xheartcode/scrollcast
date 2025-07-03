@@ -37,6 +37,7 @@ pub struct Theme {
 }
 
 impl Theme {
+    #[allow(dead_code)]
     pub fn light() -> Self {
         Theme {
             mode: ThemeMode::Light,
@@ -58,6 +59,7 @@ impl Theme {
         }
     }
 
+    #[allow(dead_code)]
     pub fn dark() -> Self {
         Theme {
             mode: ThemeMode::Dark,
@@ -79,6 +81,7 @@ impl Theme {
         }
     }
 
+    #[allow(dead_code)]
     pub fn from_mode(mode: ThemeMode) -> Self {
         match mode {
             ThemeMode::Light => Self::light(),
@@ -87,6 +90,7 @@ impl Theme {
     }
 
     /// Convert hex color to RGB values (0.0-1.0 range for PDF)
+    #[allow(dead_code)]
     pub fn hex_to_rgb(hex: &str) -> (f32, f32, f32) {
         let hex = hex.trim_start_matches('#');
         if hex.len() != 6 {
@@ -101,6 +105,7 @@ impl Theme {
     }
 
     /// Get color mapping for syntax highlighting
+    #[allow(dead_code)]
     pub fn get_color_map(&self) -> HashMap<String, (f32, f32, f32)> {
         let mut map = HashMap::new();
         

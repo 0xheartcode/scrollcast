@@ -108,6 +108,7 @@ impl Default for IgnoreConfig {
 
 impl Config {
     /// Load configuration from a file, falling back to defaults if not found
+    #[allow(dead_code)]
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let config_path = path.as_ref();
         
@@ -123,6 +124,7 @@ impl Config {
     }
 
     /// Load configuration from the current directory or user's home directory
+    #[allow(dead_code)]
     pub fn load_default() -> Result<Self> {
         // Try to load from current directory first
         let local_config = Path::new("scrollcast.toml");
@@ -143,6 +145,7 @@ impl Config {
     }
 
     /// Save configuration to a file
+    #[allow(dead_code)]
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let content = toml::to_string_pretty(self)
             .context("Failed to serialize configuration")?;
@@ -152,6 +155,7 @@ impl Config {
     }
 
     /// Create a sample configuration file
+    #[allow(dead_code)]
     pub fn create_sample_config<P: AsRef<Path>>(path: P) -> Result<()> {
         let sample_config = Config {
             output: OutputConfig {
@@ -197,6 +201,7 @@ impl Config {
     }
 
     /// Get theme mode as enum
+    #[allow(dead_code)]
     pub fn get_theme_mode(&self) -> ThemeMode {
         match self.theme.mode.as_str() {
             "dark" => ThemeMode::Dark,
@@ -205,11 +210,13 @@ impl Config {
     }
 
     /// Get output directory path
+    #[allow(dead_code)]
     pub fn get_output_dir(&self) -> PathBuf {
         PathBuf::from(&self.output.folder)
     }
 
     /// Get output filename with fallback
+    #[allow(dead_code)]
     pub fn get_output_filename(&self, fallback: &str) -> String {
         self.output.filename
             .as_ref()
@@ -218,6 +225,7 @@ impl Config {
     }
 
     /// Ensure output directory exists
+    #[allow(dead_code)]
     pub fn ensure_output_dir(&self) -> Result<PathBuf> {
         let output_dir = self.get_output_dir();
         

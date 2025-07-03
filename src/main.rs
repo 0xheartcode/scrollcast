@@ -283,11 +283,11 @@ async fn main() -> Result<()> {
     let temp_markdown = temp_dir.join(format!("{}_temp.md", repo_name));
 
     if needs_chunking {
-        process_files_in_chunks(files, repo_name, effective_chunk_size, &temp_markdown, include_toc, verbose, memory_limit, max_file_size_mb).await
+        process_files_in_chunks(&files, repo_name, effective_chunk_size, &temp_markdown, include_toc, verbose, memory_limit, max_file_size_mb).await
             .context("Failed to process files in chunks")?;
     } else {
         let markdown_generator = MarkdownGenerator::new(include_toc, true);
-        let markdown_content = markdown_generator.generate_markdown(files, repo_name)
+        let markdown_content = markdown_generator.generate_markdown(&files, repo_name)
             .context("Failed to generate markdown")?;
         fs::write(&temp_markdown, &markdown_content)
             .context("Failed to write temporary markdown file")?;
@@ -302,11 +302,19 @@ async fn main() -> Result<()> {
     }
 
     // Configure Pandoc
+    let use_chunked_pdf = matches!(output_format, OutputFormat::Pdf) && 
+        (files.len() > 10 || total_size > 1_000_000);
+    
+    if use_chunked_pdf && verbose {
+        println!("📦 Using chunked PDF processing for better memory efficiency");
+    }
+    
     let pandoc_config = PandocConfig {
         output_format,
         highlight_style: theme,
         include_toc,
         syntax_definitions: Vec::new(),
+        use_chunked_pdf,
     };
 
     let converter = PandocConverter::new(pandoc_config)
@@ -314,8 +322,22 @@ async fn main() -> Result<()> {
 
     // Convert to final format
     println!("{}", "🔄 Converting to final format...".color(Color::Cyan));
-    converter.convert_markdown_to_document(&temp_markdown, output_path, verbose).await
-        .context("Failed to convert markdown to final format")?;
+    
+    if use_chunked_pdf {
+        // For chunked PDF processing, we need individual markdown files
+        let temp_dir = std::env::temp_dir();
+        let chunk_markdowns = generate_individual_markdowns(&files, repo_name, include_toc, &temp_dir, verbose)?;
+        converter.convert_markdown_chunks_to_pdf(&chunk_markdowns, output_path, verbose).await
+            .context("Failed to convert markdown chunks to PDF")?;
+        
+        // Clean up temporary markdown files
+        for markdown_file in &chunk_markdowns {
+            let _ = fs::remove_file(markdown_file);
+        }
+    } else {
+        converter.convert_markdown_to_document(&temp_markdown, output_path, verbose).await
+            .context("Failed to convert markdown to final format")?;
+    }
 
     // Keep temporary file for debugging
     // let _ = fs::remove_file(&temp_markdown);
@@ -341,7 +363,7 @@ async fn main() -> Result<()> {
 }
 
 async fn process_files_in_chunks(
-    files: Vec<FileInfo>,
+    files: &[FileInfo],
     repo_name: &str,
     chunk_size: usize,
     output_path: &Path,
@@ -360,7 +382,7 @@ async fn process_files_in_chunks(
     // Add table of contents for all files
     if include_toc {
         final_markdown.push_str("## Table of Contents\n\n");
-        for file in &files {
+        for file in files {
             let sanitized_path = file.path.replace(['/', '\\'], "-").replace('.', "-");
             let escaped_path = escape_markdown_special_chars(&file.path);
             final_markdown.push_str(&format!("- [{}](#{sanitized_path})\n", escaped_path));
@@ -371,7 +393,7 @@ async fn process_files_in_chunks(
     // Add file tree
     final_markdown.push_str("## File Structure\n\n");
     final_markdown.push_str("```\n");
-    for file in &files {
+    for file in files {
         final_markdown.push_str(&format!("{}\n", file.path));
     }
     final_markdown.push_str("```\n\n");
@@ -382,7 +404,7 @@ async fn process_files_in_chunks(
     // Process files in chunks
     let chunks: Vec<&[FileInfo]> = files.chunks(chunk_size).collect();
     let total_chunks = chunks.len();
-    let mut global_page_number = 1; // Start after title/TOC page
+    let mut _global_page_number = 1; // Start after title/TOC page
     let mut file_counter = 0;
     
     for (chunk_index, chunk) in chunks.iter().enumerate() {
@@ -394,7 +416,7 @@ async fn process_files_in_chunks(
         // Process each file in the chunk
         for file in chunk.iter() {
             file_counter += 1;
-            global_page_number += 1; // Each file gets a new page
+            _global_page_number += 1; // Each file gets a new page
             
             if verbose {
                 sys.refresh_memory();
@@ -432,8 +454,7 @@ async fn process_files_in_chunks(
             
             // Add file header with page numbers
             final_markdown.push_str(&format!("### {} {{#{sanitized_path}}}\n\n", escaped_path));
-            final_markdown.push_str(&format!("**File:** {} | **Size:** {} | **File #{} | Page {}**\n\n", 
-                escaped_path, format_file_size(file.size), file_counter, global_page_number));
+            final_markdown.push_str(&format!("**Size:** {}\n\n", format_file_size(file.size)));
             
             if let Some(language) = &file.language {
                 final_markdown.push_str(&format!("```{}\n", language));
@@ -443,15 +464,12 @@ async fn process_files_in_chunks(
             
             final_markdown.push_str(&processed_content);
             
-            if !file.content.ends_with('\n') {
+            // Ensure there's always a newline before closing backticks
+            if !processed_content.ends_with('\n') {
                 final_markdown.push('\n');
             }
             
             final_markdown.push_str("```\n\n");
-            
-            // Add file info with page numbering
-            final_markdown.push_str(&format!("*File size: {} | File #{} of {} | Page {}*\n\n", 
-                format_file_size(file.size), file_counter, files.len(), global_page_number));
             final_markdown.push_str("---\n\n");
         }
         
@@ -592,6 +610,77 @@ fn list_themes() -> Result<()> {
     }
     
     Ok(())
+}
+
+fn generate_individual_markdowns(files: &[FileInfo], repo_name: &str, include_toc: bool, temp_dir: &Path, verbose: bool) -> Result<Vec<PathBuf>> {
+    let mut markdown_files = Vec::new();
+    
+    // Generate title page markdown
+    let title_markdown = temp_dir.join("scrollcast_title.md");
+    let mut title_content = String::new();
+    title_content.push_str(&format!("# {}\n\n", repo_name));
+    title_content.push_str(&format!("Generated on: {}\n\n", chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")));
+    
+    if include_toc {
+        title_content.push_str("## Table of Contents\n\n");
+        for file in files {
+            let escaped_path = escape_markdown_special_chars(&file.path);
+            title_content.push_str(&format!("- {}\n", escaped_path));
+        }
+        title_content.push_str("\n");
+    }
+    
+    // Add file tree
+    title_content.push_str("## File Structure\n\n");
+    title_content.push_str("```\n");
+    for file in files {
+        title_content.push_str(&format!("{}\n", file.path));
+    }
+    title_content.push_str("```\n\n");
+    
+    fs::write(&title_markdown, &title_content)
+        .context("Failed to write title markdown")?;
+    markdown_files.push(title_markdown);
+    
+    if verbose {
+        println!("   📄 Generated title page");
+    }
+    
+    // Generate individual file markdowns
+    for (index, file) in files.iter().enumerate() {
+        let file_markdown = temp_dir.join(format!("scrollcast_file_{}.md", index));
+        let mut file_content = String::new();
+        
+        let sanitized_path = file.path.replace(['/', '\\'], "-").replace('.', "-");
+        let escaped_path = escape_markdown_special_chars(&file.path);
+        file_content.push_str(&format!("## {} {{#{sanitized_path}}}\n\n", escaped_path));
+        file_content.push_str(&format!("**Size:** {}\n\n", format_file_size(file.size)));
+        
+        if let Some(language) = &file.language {
+            file_content.push_str(&format!("```{}\n", language));
+        } else {
+            file_content.push_str("```\n");
+        }
+        
+        let processed_content = process_content_for_latex(&file.content);
+        file_content.push_str(&processed_content);
+        
+        if !processed_content.ends_with('\n') {
+            file_content.push('\n');
+        }
+        
+        file_content.push_str("```\n\n");
+        
+        fs::write(&file_markdown, &file_content)
+            .context("Failed to write file markdown")?;
+        markdown_files.push(file_markdown);
+        
+        if verbose {
+            println!("   📄 Generated markdown for: {}", file.path);
+        }
+    }
+    
+    Ok(markdown_files)
 }
 
 fn list_languages() -> Result<()> {

@@ -10,6 +10,7 @@ pub struct PandocConfig {
     pub highlight_style: String,
     pub include_toc: bool,
     pub syntax_definitions: Vec<PathBuf>,
+    pub use_chunked_pdf: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -21,6 +22,7 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
+    #[allow(dead_code)]
     pub fn extension(&self) -> &str {
         match self {
             OutputFormat::Pdf => "pdf",
@@ -79,13 +81,27 @@ impl PandocConverter {
 
     pub async fn convert_markdown_to_document(&self, input_path: &Path, output_path: &Path, verbose: bool) -> Result<()> {
         // Ensure Solidity support is set up
-        let solidity_xml = self.setup_solidity_support().await?;
+        let _solidity_xml = self.setup_solidity_support().await?;
 
         // Check if pandoc is available
         self.check_pandoc_available()?;
 
-        // Build pandoc command
-        let mut cmd = Command::new("pandoc");
+        // Build pandoc command with resource limits
+        // Use timeout and ulimit to prevent resource exhaustion
+        let timeout_seconds = std::env::var("SCROLLCAST_PANDOC_TIMEOUT")
+            .unwrap_or_else(|_| "600".to_string()); // 10 minutes default
+        let memory_limit_kb = std::env::var("SCROLLCAST_PANDOC_MEMORY_KB")
+            .unwrap_or_else(|_| "4194304".to_string()); // 4GB default
+        let cpu_time_seconds = std::env::var("SCROLLCAST_PANDOC_CPU_TIME")
+            .unwrap_or_else(|_| "600".to_string()); // 10 minutes default
+            
+        let mut cmd = Command::new("timeout");
+        cmd.arg(&timeout_seconds)
+            .arg("bash")
+            .arg("-c")
+            .arg(&format!("ulimit -m {} && ulimit -t {} && exec pandoc \"$@\"", 
+                memory_limit_kb, cpu_time_seconds))
+            .arg("--");
         
         // Input file
         cmd.arg(input_path);
@@ -114,8 +130,7 @@ impl PandocConverter {
                 // Fix for large code blocks causing "dimension too large" errors
                 cmd.arg("-V").arg("documentclass=article");
                 cmd.arg("-V").arg("pagestyle=plain");
-                // Break long lines in code blocks
-                cmd.arg("--listings");
+                // Use default code block handling instead of listings package to avoid spacing issues
                 if self.config.include_toc {
                     cmd.arg("--toc");
                 }
@@ -161,13 +176,192 @@ impl PandocConverter {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
+            
+            // Check for specific timeout/resource limit issues
+            let exit_code = output.status.code().unwrap_or(-1);
+            let error_message = match exit_code {
+                124 => "Pandoc conversion timed out. Try reducing document size or increasing SCROLLCAST_PANDOC_TIMEOUT.",
+                137 => "Pandoc killed due to memory limit. Try reducing document size or increasing SCROLLCAST_PANDOC_MEMORY_KB.",
+                _ if stderr.contains("TeX capacity exceeded") || stderr.contains("dimension too large") => {
+                    "LaTeX capacity exceeded. Document is too large for PDF generation. Try EPUB or HTML format instead."
+                },
+                _ if stderr.contains("memory") || stderr.contains("out of memory") => {
+                    "Out of memory error. Try reducing document size or increasing SCROLLCAST_PANDOC_MEMORY_KB."
+                },
+                _ => "Pandoc conversion failed"
+            };
+            
             return Err(anyhow!(
-                "Pandoc conversion failed:\nSTDERR: {}\nSTDOUT: {}", 
-                stderr, stdout
+                "{}:\nExit code: {}\nSTDERR: {}\nSTDOUT: {}", 
+                error_message, exit_code, stderr, stdout
             ));
         }
 
         println!("✅ Document generated successfully: {}", output_path.display());
+        Ok(())
+    }
+
+    pub async fn convert_markdown_chunks_to_pdf(&self, markdown_files: &[PathBuf], output_path: &Path, verbose: bool) -> Result<()> {
+        if !matches!(self.config.output_format, OutputFormat::Pdf) {
+            return Err(anyhow!("Chunked processing is only supported for PDF output"));
+        }
+
+        // Check if PDF merge tools are available
+        self.check_pdf_merge_tools()?;
+
+        println!("📄 Converting {} markdown chunks to individual PDFs...", markdown_files.len());
+        
+        let temp_dir = std::env::temp_dir();
+        let mut temp_pdfs = Vec::new();
+        
+        // Convert each markdown file to PDF individually
+        for (index, markdown_file) in markdown_files.iter().enumerate() {
+            if verbose {
+                println!("   📄 Converting chunk {}/{}: {}", 
+                    index + 1, markdown_files.len(), markdown_file.display());
+            }
+            
+            let temp_pdf = temp_dir.join(format!("scrollcast_chunk_{}.pdf", index));
+            self.convert_single_markdown_to_pdf(markdown_file, &temp_pdf, verbose).await?;
+            temp_pdfs.push(temp_pdf);
+        }
+        
+        // Merge all PDFs into final output
+        println!("🔗 Merging {} PDFs into final document...", temp_pdfs.len());
+        self.merge_pdfs(&temp_pdfs, output_path, verbose)?;
+        
+        // Clean up temporary PDFs
+        for temp_pdf in &temp_pdfs {
+            let _ = fs::remove_file(temp_pdf);
+        }
+        
+        println!("✅ Document generated successfully: {}", output_path.display());
+        Ok(())
+    }
+
+    async fn convert_single_markdown_to_pdf(&self, input_path: &Path, output_path: &Path, verbose: bool) -> Result<()> {
+        // Use the same resource limits but for individual files
+        let timeout_seconds = std::env::var("SCROLLCAST_PANDOC_TIMEOUT")
+            .unwrap_or_else(|_| "300".to_string()); // 5 minutes for individual files
+        let memory_limit_kb = std::env::var("SCROLLCAST_PANDOC_MEMORY_KB")
+            .unwrap_or_else(|_| "2097152".to_string()); // 2GB for individual files
+        let cpu_time_seconds = std::env::var("SCROLLCAST_PANDOC_CPU_TIME")
+            .unwrap_or_else(|_| "300".to_string()); // 5 minutes for individual files
+            
+        let mut cmd = Command::new("timeout");
+        cmd.arg(&timeout_seconds)
+            .arg("bash")
+            .arg("-c")
+            .arg(&format!("ulimit -m {} && ulimit -t {} && exec pandoc \"$@\"", 
+                memory_limit_kb, cpu_time_seconds))
+            .arg("--")
+            .arg(input_path)
+            .arg("-o").arg(output_path)
+            .arg("--highlight-style").arg(&self.config.highlight_style)
+            .arg("--pdf-engine=xelatex")
+            .arg("--wrap=auto")
+            .arg("-V").arg("geometry:margin=0.8in")
+            .arg("-V").arg("fontsize=9pt")
+            .arg("-V").arg("linestretch=1.1")
+            .arg("-V").arg("documentclass=article")
+            .arg("-V").arg("pagestyle=plain");
+
+        if verbose {
+            println!("📝 Command: {:?}", cmd);
+        }
+        
+        let output = cmd.output()
+            .context("Failed to execute pandoc command")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(anyhow!(
+                "Pandoc conversion failed for {}:\nSTDERR: {}\nSTDOUT: {}", 
+                input_path.display(), stderr, stdout
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn merge_pdfs(&self, pdf_files: &[PathBuf], output_path: &Path, verbose: bool) -> Result<()> {
+        // Try pdfunite first (faster), then pdftk as fallback
+        if self.try_pdfunite(pdf_files, output_path, verbose).is_ok() {
+            return Ok(());
+        }
+        
+        println!("📄 pdfunite failed, trying pdftk...");
+        self.try_pdftk(pdf_files, output_path, verbose)
+    }
+
+    fn try_pdfunite(&self, pdf_files: &[PathBuf], output_path: &Path, verbose: bool) -> Result<()> {
+        let mut cmd = Command::new("pdfunite");
+        
+        for pdf_file in pdf_files {
+            cmd.arg(pdf_file);
+        }
+        cmd.arg(output_path);
+
+        if verbose {
+            println!("📝 pdfunite command: {:?}", cmd);
+        }
+
+        let output = cmd.output()
+            .context("Failed to execute pdfunite")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("pdfunite failed: {}", stderr));
+        }
+
+        Ok(())
+    }
+
+    fn try_pdftk(&self, pdf_files: &[PathBuf], output_path: &Path, verbose: bool) -> Result<()> {
+        let mut cmd = Command::new("pdftk");
+        
+        for pdf_file in pdf_files {
+            cmd.arg(pdf_file);
+        }
+        cmd.arg("cat").arg("output").arg(output_path);
+
+        if verbose {
+            println!("📝 pdftk command: {:?}", cmd);
+        }
+
+        let output = cmd.output()
+            .context("Failed to execute pdftk")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("pdftk failed: {}", stderr));
+        }
+
+        Ok(())
+    }
+
+    fn check_pdf_merge_tools(&self) -> Result<()> {
+        // Check if either pdfunite or pdftk is available
+        let pdfunite_available = Command::new("pdfunite")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        let pdftk_available = Command::new("pdftk")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if !pdfunite_available && !pdftk_available {
+            return Err(anyhow!(
+                "PDF merging requires either 'pdfunite' (from poppler-utils) or 'pdftk'. \
+                Please install one of these tools to use chunked PDF processing."
+            ));
+        }
+
         Ok(())
     }
 
@@ -289,6 +483,7 @@ impl Default for PandocConfig {
             highlight_style: "kate".to_string(),
             include_toc: true,
             syntax_definitions: Vec::new(),
+            use_chunked_pdf: false,
         }
     }
 }
