@@ -1,5 +1,5 @@
 use anyhow::Result;
-use pulldown_cmark::{Event, html, Parser, Tag, TagEnd, CodeBlockKind};
+use pulldown_cmark::{Event, html, Tag, TagEnd, CowStr};
 use crate::renderer::{DocumentRenderer, DocumentMetadata};
 use crate::syntax::highlighter::SyntaxHighlighter;
 
@@ -9,75 +9,66 @@ impl HtmlRenderer {
     pub fn new() -> Self {
         Self
     }
-    
-    fn process_markdown_with_syntax_highlighting(&self, markdown: &str) -> Result<String> {
-        let parser = Parser::new(markdown);
-        let mut events = Vec::new();
-        let mut in_code_block = false;
-        let mut code_lang = String::new();
-        let mut code_content = String::new();
-        
-        // Initialize syntax highlighter
-        let highlighter = SyntaxHighlighter::new()
-            .map_err(|e| anyhow::anyhow!("Failed to create syntax highlighter: {}", e))?;
-        
-        for event in parser {
-            match event {
-                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) => {
-                    in_code_block = true;
-                    code_lang = lang.to_string();
-                    code_content.clear();
-                }
-                Event::End(TagEnd::CodeBlock) => {
-                    if in_code_block {
-                        // Apply syntax highlighting
-                        let highlighted = if !code_lang.is_empty() {
-                            highlighter.highlight_to_html(&code_content, Some(&code_lang))
-                        } else {
-                            code_content.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-                        };
-                        
-                        // Add syntax highlighting CSS classes and wrap in proper HTML
-                        let html_block = format!(
-                            r#"<div class="highlight"><pre class="code-block language-{}"><code class="language-{}">{}</code></pre></div>"#,
-                            code_lang, code_lang, highlighted
-                        );
-                        events.push(Event::Html(html_block.into()));
-                        
-                        in_code_block = false;
-                    }
-                }
-                Event::Text(text) if in_code_block => {
-                    code_content.push_str(&text);
-                }
-                _ => {
-                    if !in_code_block {
-                        events.push(event);
-                    }
-                }
-            }
-        }
-        
-        let mut html_output = String::new();
-        html::push_html(&mut html_output, events.into_iter());
-        
-        Ok(html_output)
-    }
 }
 
 impl DocumentRenderer for HtmlRenderer {
     fn render(&self, events: Vec<Event>, metadata: &DocumentMetadata) -> Result<Vec<u8>> {
-        // Convert markdown events to HTML body
-        let mut body_html = String::new();
-        html::push_html(&mut body_html, events.into_iter());
+        // Initialize syntax highlighter
+        let highlighter = SyntaxHighlighter::new()?;
         
-        // Replace \newpage with CSS page break (handle different markdown outputs)
-        body_html = body_html.replace("<p>\\newpage</p>", r#"<div style="page-break-before: always;"></div>"#);
-        body_html = body_html.replace("\\newpage", r#"<div style="page-break-before: always;"></div>"#);
-    
-    fn render_markdown(&self, markdown: &str, metadata: &DocumentMetadata) -> Result<Vec<u8>> {
-        // Process markdown with syntax highlighting
-        let mut body_html = self.process_markdown_with_syntax_highlighting(markdown)?;
+        // Process events to add syntax highlighting
+        let mut processed_events = Vec::new();
+        let mut i = 0;
+        
+        while i < events.len() {
+            match &events[i] {
+                Event::Start(Tag::CodeBlock(kind)) => {
+                    // Extract language from code block
+                    let language = match kind {
+                        pulldown_cmark::CodeBlockKind::Fenced(lang) => {
+                            if lang.is_empty() { None } else { Some(lang.as_ref()) }
+                        }
+                        _ => None,
+                    };
+                    
+                    // Find the corresponding text and end events
+                    i += 1;
+                    let mut code_content = String::new();
+                    while i < events.len() {
+                        match &events[i] {
+                            Event::Text(text) => {
+                                code_content.push_str(text);
+                            }
+                            Event::End(TagEnd::CodeBlock) => {
+                                break;
+                            }
+                            _ => {}
+                        }
+                        i += 1;
+                    }
+                    
+                    // Generate highlighted HTML
+                    if language.is_some() {
+                        let highlighted_html = highlighter.highlight_to_html(&code_content, language);
+                        let wrapped_html = format!("<pre>{}</pre>", highlighted_html);
+                        processed_events.push(Event::Html(CowStr::Boxed(wrapped_html.into_boxed_str())));
+                    } else {
+                        // No language specified, use regular code block
+                        processed_events.push(Event::Start(Tag::CodeBlock(kind.clone())));
+                        processed_events.push(Event::Text(CowStr::Boxed(code_content.into_boxed_str())));
+                        processed_events.push(Event::End(TagEnd::CodeBlock));
+                    }
+                }
+                _ => {
+                    processed_events.push(events[i].clone());
+                }
+            }
+            i += 1;
+        }
+        
+        // Convert processed events to HTML
+        let mut body_html = String::new();
+        html::push_html(&mut body_html, processed_events.into_iter());
         
         // Replace \newpage with CSS page break (handle different markdown outputs)
         body_html = body_html.replace("<p>\\newpage</p>", r#"<div style="page-break-before: always;"></div>"#);
@@ -181,6 +172,19 @@ impl DocumentRenderer for HtmlRenderer {
             border-bottom: 1px solid #e1e4e8;
         }}
         
+        /* Syntect syntax highlighting styles */
+        .source {{ background-color: transparent; }}
+        [class*="comment"] {{ color: #6a737d; font-style: italic; }}
+        [class*="keyword"] {{ color: #d73a49; font-weight: bold; }}
+        [class*="storage"] {{ color: #d73a49; font-weight: bold; }}
+        [class*="string"] {{ color: #032f62; }}
+        [class*="constant"] {{ color: #005cc5; }}
+        [class*="entity"] {{ color: #6f42c1; }}
+        [class*="support"] {{ color: #005cc5; }}
+        [class*="variable"] {{ color: #e36209; }}
+        [class*="punctuation"] {{ color: #24292e; }}
+        [class*="meta"] {{ color: #24292e; }}
+        
         @media (prefers-color-scheme: dark) {{
             body {{
                 background-color: #0d1117;
@@ -221,51 +225,18 @@ impl DocumentRenderer for HtmlRenderer {
                 color: #8b949e;
                 border-bottom-color: #30363d;
             }}
-        }}
-        
-        /* Syntax highlighting styles */
-        .highlight {{
-            background-color: #f8f9fa;
-            border-radius: 6px;
-            overflow-x: auto;
-        }}
-        
-        .code-block {{
-            background-color: transparent;
-            padding: 1rem;
-            margin: 0;
-            font-family: 'SF Mono', Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-            font-size: 0.875rem;
-            line-height: 1.45;
-        }}
-        
-        /* Syntect CSS classes for syntax highlighting */
-        .syntect-keyword {{ color: #d73a49; font-weight: bold; }}
-        .syntect-string {{ color: #032f62; }}
-        .syntect-comment {{ color: #6f42c1; font-style: italic; }}
-        .syntect-function {{ color: #6f42c1; }}
-        .syntect-type {{ color: #005cc5; }}
-        .syntect-number {{ color: #005cc5; }}
-        .syntect-constant {{ color: #005cc5; }}
-        .syntect-variable {{ color: #e36209; }}
-        .syntect-operator {{ color: #d73a49; }}
-        .syntect-preprocessor {{ color: #735c0f; }}
-        
-        @media (prefers-color-scheme: dark) {{
-            .highlight {{
-                background-color: #161b22;
-            }}
             
-            .syntect-keyword {{ color: #ff7b72; }}
-            .syntect-string {{ color: #a5d6ff; }}
-            .syntect-comment {{ color: #8b949e; }}
-            .syntect-function {{ color: #d2a8ff; }}
-            .syntect-type {{ color: #79c0ff; }}
-            .syntect-number {{ color: #79c0ff; }}
-            .syntect-constant {{ color: #79c0ff; }}
-            .syntect-variable {{ color: #ffa657; }}
-            .syntect-operator {{ color: #ff7b72; }}
-            .syntect-preprocessor {{ color: #e3b341; }}
+            /* Dark mode syntax highlighting */
+            [class*="comment"] {{ color: #8b949e; }}
+            [class*="keyword"] {{ color: #ff7b72; }}
+            [class*="storage"] {{ color: #ff7b72; }}
+            [class*="string"] {{ color: #a5d6ff; }}
+            [class*="constant"] {{ color: #79c0ff; }}
+            [class*="entity"] {{ color: #d2a8ff; }}
+            [class*="support"] {{ color: #79c0ff; }}
+            [class*="variable"] {{ color: #ffa657; }}
+            [class*="punctuation"] {{ color: #c9d1d9; }}
+            [class*="meta"] {{ color: #c9d1d9; }}
         }}
     </style>
 </head>

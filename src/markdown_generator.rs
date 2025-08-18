@@ -69,22 +69,33 @@ impl MarkdownGenerator {
             markdown.push_str(&format!("### {} {{#{sanitized_path}}}\n\n", escaped_path));
             markdown.push_str(&format!("**Size:** {}\n\n", MarkdownGenerator::format_file_size(file.size)));
             
-            if let Some(language) = &file.language {
-                markdown.push_str(&format!("```{}\n", language));
+            // Handle markdown files differently - render them directly without code blocks
+            if file.path.ends_with(".md") || file.path.ends_with(".markdown") {
+                // Process content to prevent LaTeX errors
+                let processed_content = self.process_content_for_latex(&file.content);
+                markdown.push_str(&processed_content);
+                if !processed_content.ends_with('\n') {
+                    markdown.push('\n');
+                }
             } else {
-                markdown.push_str("```\n");
+                // For code files, wrap in code blocks with language highlighting
+                if let Some(language) = &file.language {
+                    markdown.push_str(&format!("```{}\n", language));
+                } else {
+                    markdown.push_str("```\n");
+                }
+                
+                // Process content to prevent LaTeX errors
+                let processed_content = self.process_content_for_latex(&file.content);
+                markdown.push_str(&processed_content);
+                
+                // Ensure there's always a newline before closing backticks
+                if !processed_content.ends_with('\n') {
+                    markdown.push('\n');
+                }
+                
+                markdown.push_str("```\n\n");
             }
-            
-            // Process content to prevent LaTeX errors
-            let processed_content = self.process_content_for_latex(&file.content);
-            markdown.push_str(&processed_content);
-            
-            // Ensure there's always a newline before closing backticks
-            if !processed_content.ends_with('\n') {
-                markdown.push('\n');
-            }
-            
-            markdown.push_str("```\n\n");
             markdown.push_str("---\n\n");
         }
 
@@ -261,7 +272,7 @@ mod tests {
             }
         ];
 
-        let markdown = generator.generate_markdown(files, "test-repo").unwrap();
+        let markdown = generator.generate_markdown(&files, "test-repo").unwrap();
         assert!(markdown.contains("# test-repo"));
         assert!(markdown.contains("## Table of Contents"));
         assert!(markdown.contains("## File Structure"));

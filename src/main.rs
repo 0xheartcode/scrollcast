@@ -461,11 +461,17 @@ async fn process_files_in_chunks(
             
             // Handle markdown files differently - render them directly without code blocks
             if file.path.ends_with(".md") || file.path.ends_with(".markdown") {
+                if verbose {
+                    println!("   📝 Processing markdown file: {} (no code block)", file.path);
+                }
                 final_markdown.push_str(&processed_content);
                 if !processed_content.ends_with('\n') {
                     final_markdown.push('\n');
                 }
             } else {
+                if verbose {
+                    println!("   💻 Processing code file: {} (with code block)", file.path);
+                }
                 // For code files, wrap in code blocks with language highlighting
                 if let Some(language) = &file.language {
                     final_markdown.push_str(&format!("```{}\n", language));
