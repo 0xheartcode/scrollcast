@@ -61,7 +61,9 @@ impl MarkdownGenerator {
             _global_page_number += 1; // Each file gets a new page
             
             // Add page break before each file (except the first one)
-            markdown.push_str("\n\\newpage\n\n");
+            if file_index > 0 {
+                markdown.push_str("\n\\newpage\n\n");
+            }
             let sanitized_path = file.path.replace(['/', '\\'], "-").replace('.', "-");
             let escaped_path = self.escape_markdown_special_chars(&file.path);
             markdown.push_str(&format!("### {} {{#{sanitized_path}}}\n\n", escaped_path));

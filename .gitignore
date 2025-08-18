@@ -1,7 +1,7 @@
 inspiration/
 
 # Output directory and generated files
-output/
+output_test/
 *.pdf
 
 # Configuration files (users will create their own)

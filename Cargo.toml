@@ -48,6 +48,18 @@ chrono = { version = "0.4", features = ["serde"] }
 # System monitoring
 sysinfo = "0.31"
 
+# Document parsing and rendering
+pulldown-cmark = "0.13"
+syntect = "5.2"
+
+# PDF generation
+printpdf = "0.8.2"
+image = "0.25"
+
+# EPUB generation
+epub-builder = "0.7"
+zip = "2.1"
+
 [dev-dependencies]
 tempfile = "3.8"
 assert_cmd = "2.0"

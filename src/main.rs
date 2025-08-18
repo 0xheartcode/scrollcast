@@ -10,12 +10,13 @@ use sysinfo::System;
 mod config;
 mod file_processor;
 mod markdown_generator;
-mod pandoc;
+mod renderer;
+mod syntax;
 mod theme;
 
 use file_processor::FileProcessor;
 use markdown_generator::{FileInfo, MarkdownGenerator};
-use pandoc::{PandocConfig, PandocConverter, OutputFormat};
+use renderer::{OutputFormat, create_renderer, DocumentMetadata};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,7 +27,7 @@ async fn main() -> Result<()> {
         .arg(
             Arg::new("input")
                 .help("Input directory (git repository or regular folder)")
-                .required_unless_present_any(["list-themes", "list-languages"])
+                .required_unless_present_any(["list-themes", "list-languages", "test-project"])
                 .index(1)
                 .value_parser(clap::value_parser!(PathBuf))
         )
@@ -35,7 +36,7 @@ async fn main() -> Result<()> {
                 .short('o')
                 .long("output")
                 .help("Output file path")
-                .required_unless_present_any(["list-themes", "list-languages"])
+                .required_unless_present_any(["list-themes", "list-languages", "test-project"])
                 .value_parser(clap::value_parser!(PathBuf))
         )
         .arg(
@@ -119,6 +120,12 @@ async fn main() -> Result<()> {
                 .value_parser(clap::value_parser!(u64))
                 .default_value("50")
         )
+        .arg(
+            Arg::new("test-project")
+                .long("test-project")
+                .help("Generate test project and all output formats (cleans output_test folder)")
+                .action(ArgAction::SetTrue)
+        )
         .get_matches();
 
     // Handle list commands
@@ -129,6 +136,11 @@ async fn main() -> Result<()> {
 
     if matches.get_flag("list-languages") {
         list_languages()?;
+        return Ok(());
+    }
+
+    if matches.get_flag("test-project") {
+        run_test_project().await?;
         return Ok(());
     }
 
@@ -301,42 +313,33 @@ async fn main() -> Result<()> {
         println!("📂 Temporary markdown file: {}", temp_markdown.display());
     }
 
-    // Configure Pandoc
-    let use_chunked_pdf = matches!(output_format, OutputFormat::Pdf) && 
-        (files.len() > 10 || total_size > 1_000_000);
-    
-    if use_chunked_pdf && verbose {
-        println!("📦 Using chunked PDF processing for better memory efficiency");
-    }
-    
-    let pandoc_config = PandocConfig {
-        output_format,
-        highlight_style: theme,
-        include_toc,
-        syntax_definitions: Vec::new(),
-        use_chunked_pdf,
-    };
-
-    let converter = PandocConverter::new(pandoc_config)
-        .context("Failed to initialize Pandoc converter")?;
-
     // Convert to final format
     println!("{}", "🔄 Converting to final format...".color(Color::Cyan));
     
-    if use_chunked_pdf {
-        // For chunked PDF processing, we need individual markdown files
-        let temp_dir = std::env::temp_dir();
-        let chunk_markdowns = generate_individual_markdowns(&files, repo_name, include_toc, &temp_dir, verbose)?;
-        converter.convert_markdown_chunks_to_pdf(&chunk_markdowns, output_path, verbose).await
-            .context("Failed to convert markdown chunks to PDF")?;
+    // For non-markdown formats, use the renderer
+    if !matches!(output_format, OutputFormat::Markdown) {
+        let metadata = DocumentMetadata {
+            title: repo_name.to_string(),
+            author: None,
+            date: Some(chrono::Utc::now().format("%Y-%m-%d").to_string()),
+            language: "en".to_string(),
+            include_toc,
+            syntax_theme: theme.clone(),
+        };
         
-        // Clean up temporary markdown files
-        for markdown_file in &chunk_markdowns {
-            let _ = fs::remove_file(markdown_file);
-        }
+        let renderer = create_renderer(&output_format)
+            .context("Failed to create renderer")?;
+        
+        // Read the markdown content
+        let markdown_content = fs::read_to_string(&temp_markdown)
+            .context("Failed to read temporary markdown file")?;
+        
+        renderer.save_to_file(&markdown_content, &metadata, output_path)
+            .context("Failed to render document")?;
     } else {
-        converter.convert_markdown_to_document(&temp_markdown, output_path, verbose).await
-            .context("Failed to convert markdown to final format")?;
+        // For markdown output, just copy the file
+        fs::copy(&temp_markdown, output_path)
+            .context("Failed to copy markdown file")?;
     }
 
     // Keep temporary file for debugging
@@ -444,7 +447,7 @@ async fn process_files_in_chunks(
                 }
                 truncate_large_file_content(&file.content, file.size)
             } else {
-                process_content_for_latex(&file.content)
+                file.content.clone()
             };
             
             // Add page break before each file (except the first one)
@@ -456,20 +459,30 @@ async fn process_files_in_chunks(
             final_markdown.push_str(&format!("### {} {{#{sanitized_path}}}\n\n", escaped_path));
             final_markdown.push_str(&format!("**Size:** {}\n\n", format_file_size(file.size)));
             
-            if let Some(language) = &file.language {
-                final_markdown.push_str(&format!("```{}\n", language));
+            // Handle markdown files differently - render them directly without code blocks
+            if file.path.ends_with(".md") || file.path.ends_with(".markdown") {
+                final_markdown.push_str(&processed_content);
+                if !processed_content.ends_with('\n') {
+                    final_markdown.push('\n');
+                }
             } else {
-                final_markdown.push_str("```\n");
+                // For code files, wrap in code blocks with language highlighting
+                if let Some(language) = &file.language {
+                    final_markdown.push_str(&format!("```{}\n", language));
+                } else {
+                    final_markdown.push_str("```\n");
+                }
+                
+                final_markdown.push_str(&processed_content);
+                
+                // Ensure there's always a newline before closing backticks
+                if !processed_content.ends_with('\n') {
+                    final_markdown.push('\n');
+                }
+                
+                final_markdown.push_str("```\n\n");
             }
             
-            final_markdown.push_str(&processed_content);
-            
-            // Ensure there's always a newline before closing backticks
-            if !processed_content.ends_with('\n') {
-                final_markdown.push('\n');
-            }
-            
-            final_markdown.push_str("```\n\n");
             final_markdown.push_str("---\n\n");
         }
         
@@ -517,38 +530,6 @@ fn format_file_size(size: usize) -> String {
     }
 }
 
-fn process_content_for_latex(content: &str) -> String {
-    // Break very long lines to prevent LaTeX "dimension too large" errors
-    let lines: Vec<&str> = content.lines().collect();
-    let mut processed_lines = Vec::new();
-    
-    for line in lines {
-        if line.len() > 100 {
-            // Break long lines at reasonable breakpoints
-            let mut current_line = String::new();
-            let chars: Vec<char> = line.chars().collect();
-            
-            for &ch in chars.iter() {
-                current_line.push(ch);
-                
-                // Break at 100 characters or at natural breakpoints
-                if current_line.len() >= 100 && (ch == ' ' || ch == ',' || ch == ';' || ch == ')' || ch == '}') {
-                    processed_lines.push(current_line.clone());
-                    current_line.clear();
-                }
-            }
-            
-            // Add remaining characters
-            if !current_line.is_empty() {
-                processed_lines.push(current_line);
-            }
-        } else {
-            processed_lines.push(line.to_string());
-        }
-    }
-    
-    processed_lines.join("\n")
-}
 
 fn truncate_large_file_content(content: &str, original_size: usize) -> String {
     const PREVIEW_SIZE: usize = 100_000; // Show first 100KB
@@ -556,14 +537,14 @@ fn truncate_large_file_content(content: &str, original_size: usize) -> String {
     const MAX_SAMPLES: usize = 5;        // Max 5 samples
     
     if content.len() <= PREVIEW_SIZE {
-        return process_content_for_latex(content);
+        return content.to_string();
     }
     
     let mut result = String::new();
     
     // Add first part
     let preview_end = std::cmp::min(PREVIEW_SIZE, content.len());
-    result.push_str(&process_content_for_latex(&content[..preview_end]));
+    result.push_str(&content[..preview_end]);
     result.push_str("\n\n");
     result.push_str(&format!("... [File continues for {} more] ...\n\n", 
         format_file_size(original_size - preview_end)));
@@ -578,7 +559,7 @@ fn truncate_large_file_content(content: &str, original_size: usize) -> String {
             if sample_start < content.len() {
                 result.push_str(&format!("\n--- Sample {} (around {}%) ---\n", 
                     i, (sample_start * 100) / content.len()));
-                result.push_str(&process_content_for_latex(&content[sample_start..sample_end]));
+                result.push_str(&content[sample_start..sample_end]);
                 result.push_str("\n");
             }
         }
@@ -597,113 +578,181 @@ fn truncate_large_file_content(content: &str, original_size: usize) -> String {
 fn list_themes() -> Result<()> {
     println!("{}", "Available syntax highlighting themes:".color(Color::Blue).bold());
     
-    match PandocConverter::list_available_highlight_styles() {
-        Ok(themes) => {
-            for theme in themes {
-                println!("  • {}", theme.color(Color::Green));
-            }
-        }
-        Err(e) => {
-            eprintln!("Failed to get themes: {}", e);
-            println!("Default themes: pygments, kate, monochrome, breezedark, espresso, zenburn, haddock, tango");
-        }
-    }
+    // List syntect themes
+    println!("  • {}", "pygments".color(Color::Green));
+    println!("  • {}", "kate".color(Color::Green));
+    println!("  • {}", "monochrome".color(Color::Green));
+    println!("  • {}", "breezedark".color(Color::Green));
+    println!("  • {}", "espresso".color(Color::Green));
+    println!("  • {}", "zenburn".color(Color::Green));
+    println!("  • {}", "haddock".color(Color::Green));
+    println!("  • {}", "tango".color(Color::Green));
     
     Ok(())
 }
 
-fn generate_individual_markdowns(files: &[FileInfo], repo_name: &str, include_toc: bool, temp_dir: &Path, verbose: bool) -> Result<Vec<PathBuf>> {
-    let mut markdown_files = Vec::new();
-    
-    // Generate title page markdown
-    let title_markdown = temp_dir.join("scrollcast_title.md");
-    let mut title_content = String::new();
-    title_content.push_str(&format!("# {}\n\n", repo_name));
-    title_content.push_str(&format!("Generated on: {}\n\n", chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")));
-    
-    if include_toc {
-        title_content.push_str("## Table of Contents\n\n");
-        for file in files {
-            let escaped_path = escape_markdown_special_chars(&file.path);
-            title_content.push_str(&format!("- {}\n", escaped_path));
-        }
-        title_content.push_str("\n");
-    }
-    
-    // Add file tree
-    title_content.push_str("## File Structure\n\n");
-    title_content.push_str("```\n");
-    for file in files {
-        title_content.push_str(&format!("{}\n", file.path));
-    }
-    title_content.push_str("```\n\n");
-    
-    fs::write(&title_markdown, &title_content)
-        .context("Failed to write title markdown")?;
-    markdown_files.push(title_markdown);
-    
-    if verbose {
-        println!("   📄 Generated title page");
-    }
-    
-    // Generate individual file markdowns
-    for (index, file) in files.iter().enumerate() {
-        let file_markdown = temp_dir.join(format!("scrollcast_file_{}.md", index));
-        let mut file_content = String::new();
-        
-        let sanitized_path = file.path.replace(['/', '\\'], "-").replace('.', "-");
-        let escaped_path = escape_markdown_special_chars(&file.path);
-        file_content.push_str(&format!("## {} {{#{sanitized_path}}}\n\n", escaped_path));
-        file_content.push_str(&format!("**Size:** {}\n\n", format_file_size(file.size)));
-        
-        if let Some(language) = &file.language {
-            file_content.push_str(&format!("```{}\n", language));
-        } else {
-            file_content.push_str("```\n");
-        }
-        
-        let processed_content = process_content_for_latex(&file.content);
-        file_content.push_str(&processed_content);
-        
-        if !processed_content.ends_with('\n') {
-            file_content.push('\n');
-        }
-        
-        file_content.push_str("```\n\n");
-        
-        fs::write(&file_markdown, &file_content)
-            .context("Failed to write file markdown")?;
-        markdown_files.push(file_markdown);
-        
-        if verbose {
-            println!("   📄 Generated markdown for: {}", file.path);
-        }
-    }
-    
-    Ok(markdown_files)
-}
 
 fn list_languages() -> Result<()> {
     println!("{}", "Supported programming languages:".color(Color::Blue).bold());
     
-    match PandocConverter::list_available_languages() {
-        Ok(languages) => {
-            // Display languages in columns
-            let mut count = 0;
-            for language in languages {
-                print!("{:<20}", language);
-                count += 1;
-                if count % 4 == 0 {
-                    println!();
+    // List common languages supported by syntect
+    let languages = vec![
+        "Rust", "Python", "JavaScript", "TypeScript",
+        "Go", "Java", "C", "C++",
+        "C#", "Ruby", "PHP", "Swift",
+        "Kotlin", "Scala", "Haskell", "Lua",
+        "R", "MATLAB", "Julia", "Perl",
+        "Shell", "PowerShell", "SQL", "HTML",
+        "CSS", "XML", "JSON", "YAML",
+        "TOML", "Markdown", "LaTeX", "Dockerfile",
+        "Makefile", "CMake", "Nginx", "Apache",
+    ];
+    
+    // Display languages in columns
+    let mut count = 0;
+    for language in languages {
+        print!("{:<20}", language);
+        count += 1;
+        if count % 4 == 0 {
+            println!();
+        }
+    }
+    if count % 4 != 0 {
+        println!();
+    }
+    
+    println!("\n{}", "Note: Syntect supports 100+ languages with TextMate syntax definitions.".color(Color::Yellow));
+    
+    Ok(())
+}
+
+async fn run_test_project() -> Result<()> {
+    use std::process::Command;
+    
+    println!("{}", "🧪 Running Test Project Generation".color(Color::Blue).bold());
+    
+    // Clean output_test folder
+    println!("{}", "🧹 Cleaning output_test folder...".color(Color::Cyan));
+    if Path::new("output_test").exists() {
+        fs::remove_dir_all("output_test")
+            .context("Failed to remove output_test directory")?;
+    }
+    fs::create_dir_all("output_test")
+        .context("Failed to create output_test directory")?;
+    
+    // Check test_project directory exists
+    println!("{}", "📁 Checking test_project...".color(Color::Cyan));
+    if !Path::new("test_project").exists() {
+        println!("❌ test_project directory not found!");
+        println!("Please create a test_project directory with some files to test with.");
+        return Ok(());
+    }
+    
+    // Check if directory has files
+    let test_files = fs::read_dir("test_project")
+        .context("Failed to read test_project directory")?
+        .count();
+    
+    if test_files == 0 {
+        println!("❌ test_project directory is empty!");
+        println!("Please add some files to the test_project directory to test with.");
+        return Ok(());
+    }
+    
+    println!("✅ Found test_project directory with {} files", test_files);
+    
+    // Generate all formats
+    let formats = ["markdown", "html", "epub", "pdf"];
+    let mut success_count = 0;
+    let mut failed_formats = Vec::new();
+    
+    for format in &formats {
+        println!("{}", format!("📄 Generating {} format...", format).color(Color::Cyan));
+        
+        let output_file = format!("output_test/test_project.{}", 
+            match *format {
+                "markdown" => "md",
+                other => other,
+            }
+        );
+        
+        // Run the scrollcast command using the same binary
+        let result = Command::new("cargo")
+            .args(&[
+                "run", "--",
+                "test_project",
+                "--output", &output_file,
+                "--format", format,
+                "--yes"
+            ])
+            .status();
+        
+        match result {
+            Ok(status) if status.success() => {
+                println!("✅ {} generated successfully", format);
+                success_count += 1;
+                
+                // Show file size
+                if let Ok(metadata) = fs::metadata(&output_file) {
+                    let size = metadata.len();
+                    let size_str = if size > 1_048_576 {
+                        format!("{:.1} MB", size as f64 / 1_048_576.0)
+                    } else if size > 1024 {
+                        format!("{:.1} KB", size as f64 / 1024.0)
+                    } else {
+                        format!("{} bytes", size)
+                    };
+                    println!("   📊 File size: {}", size_str.color(Color::Green));
                 }
             }
-            if count % 4 != 0 {
-                println!();
+            Ok(_) => {
+                println!("❌ Failed to generate {}", format);
+                failed_formats.push(format);
             }
-            println!("\n{}", "Note: Solidity support is automatically added when needed.".color(Color::Yellow));
+            Err(e) => {
+                println!("❌ Error generating {}: {}", format, e);
+                failed_formats.push(format);
+            }
         }
-        Err(e) => {
-            eprintln!("Failed to get supported languages: {}", e);
+    }
+    
+    // Summary
+    println!("\n{}", "📊 Test Project Generation Summary".color(Color::Blue).bold());
+    println!("✅ Successfully generated: {}/{} formats", success_count, formats.len());
+    
+    if !failed_formats.is_empty() {
+        let failed_list: Vec<String> = failed_formats.iter().map(|f| f.to_string()).collect();
+        println!("❌ Failed formats: {}", failed_list.join(", "));
+    }
+    
+    println!("📁 Output directory: {}", "output_test/".color(Color::Blue));
+    
+    // List generated files
+    if let Ok(entries) = fs::read_dir("output_test") {
+        println!("\n{}", "📄 Generated files:".color(Color::Cyan));
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                if path.is_file() {
+                    let filename = path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("unknown");
+                    
+                    if let Ok(metadata) = entry.metadata() {
+                        let size = metadata.len();
+                        let size_str = if size > 1_048_576 {
+                            format!("{:.1} MB", size as f64 / 1_048_576.0)
+                        } else if size > 1024 {
+                            format!("{:.1} KB", size as f64 / 1024.0)
+                        } else {
+                            format!("{} bytes", size)
+                        };
+                        println!("  📄 {} ({})", filename.color(Color::Green), size_str);
+                    } else {
+                        println!("  📄 {}", filename.color(Color::Green));
+                    }
+                }
+            }
         }
     }
     
