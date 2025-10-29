@@ -43,9 +43,15 @@ async fn main() -> Result<()> {
             Arg::new("format")
                 .short('f')
                 .long("format")
-                .help("Output format")
+                .help("Output format (epub is experimental)")
                 .value_parser(["pdf", "epub", "html", "markdown"])
                 .default_value("pdf")
+        )
+        .arg(
+            Arg::new("include-experimental")
+                .long("include-experimental")
+                .help("Include experimental formats (EPUB) when using --test-project")
+                .action(ArgAction::SetTrue)
         )
         .arg(
             Arg::new("theme")
@@ -140,7 +146,8 @@ async fn main() -> Result<()> {
     }
 
     if matches.get_flag("test-project") {
-        run_test_project().await?;
+        let include_experimental = matches.get_flag("include-experimental");
+        run_test_project(include_experimental).await?;
         return Ok(());
     }
 
@@ -632,50 +639,60 @@ fn list_languages() -> Result<()> {
     Ok(())
 }
 
-async fn run_test_project() -> Result<()> {
+async fn run_test_project(include_experimental: bool) -> Result<()> {
     use std::process::Command;
     
     println!("{}", "🧪 Running Test Project Generation".color(Color::Blue).bold());
     
-    // Clean output_test folder
-    println!("{}", "🧹 Cleaning output_test folder...".color(Color::Cyan));
-    if Path::new("output_test").exists() {
-        fs::remove_dir_all("output_test")
-            .context("Failed to remove output_test directory")?;
+    if include_experimental {
+        println!("{}", "🧪 Including experimental formats (EPUB)".color(Color::Yellow));
+    } else {
+        println!("{}", "📝 Skipping experimental formats (use --include-experimental to include EPUB)".color(Color::Yellow));
     }
-    fs::create_dir_all("output_test")
-        .context("Failed to create output_test directory")?;
+    
+    // Clean output_test folder
+    println!("{}", "🧹 Cleaning testfiles/output_test folder...".color(Color::Cyan));
+    if Path::new("testfiles/output_test").exists() {
+        fs::remove_dir_all("testfiles/output_test")
+            .context("Failed to remove testfiles/output_test directory")?;
+    }
+    fs::create_dir_all("testfiles/output_test")
+        .context("Failed to create testfiles/output_test directory")?;
     
     // Check test_project directory exists
-    println!("{}", "📁 Checking test_project...".color(Color::Cyan));
-    if !Path::new("test_project").exists() {
-        println!("❌ test_project directory not found!");
-        println!("Please create a test_project directory with some files to test with.");
+    println!("{}", "📁 Checking testfiles/test_project...".color(Color::Cyan));
+    if !Path::new("testfiles/test_project").exists() {
+        println!("❌ testfiles/test_project directory not found!");
+        println!("Please create a testfiles/test_project directory with some files to test with.");
         return Ok(());
     }
     
     // Check if directory has files
-    let test_files = fs::read_dir("test_project")
-        .context("Failed to read test_project directory")?
+    let test_files = fs::read_dir("testfiles/test_project")
+        .context("Failed to read testfiles/test_project directory")?
         .count();
     
     if test_files == 0 {
-        println!("❌ test_project directory is empty!");
-        println!("Please add some files to the test_project directory to test with.");
+        println!("❌ testfiles/test_project directory is empty!");
+        println!("Please add some files to the testfiles/test_project directory to test with.");
         return Ok(());
     }
     
-    println!("✅ Found test_project directory with {} files", test_files);
+    println!("✅ Found testfiles/test_project directory with {} files", test_files);
     
-    // Generate all formats
-    let formats = ["markdown", "html", "epub", "pdf"];
+    // Generate all formats (exclude EPUB unless experimental flag is set)
+    let formats = if include_experimental {
+        vec!["markdown", "html", "epub", "pdf"]
+    } else {
+        vec!["markdown", "html", "pdf"]
+    };
     let mut success_count = 0;
     let mut failed_formats = Vec::new();
     
     for format in &formats {
         println!("{}", format!("📄 Generating {} format...", format).color(Color::Cyan));
         
-        let output_file = format!("output_test/test_project.{}", 
+        let output_file = format!("testfiles/output_test/test_project.{}", 
             match *format {
                 "markdown" => "md",
                 other => other,
@@ -686,7 +703,7 @@ async fn run_test_project() -> Result<()> {
         let result = Command::new("cargo")
             .args(&[
                 "run", "--",
-                "test_project",
+                "testfiles/test_project",
                 "--output", &output_file,
                 "--format", format,
                 "--yes"
@@ -731,10 +748,10 @@ async fn run_test_project() -> Result<()> {
         println!("❌ Failed formats: {}", failed_list.join(", "));
     }
     
-    println!("📁 Output directory: {}", "output_test/".color(Color::Blue));
+    println!("📁 Output directory: {}", "testfiles/output_test/".color(Color::Blue));
     
     // List generated files
-    if let Ok(entries) = fs::read_dir("output_test") {
+    if let Ok(entries) = fs::read_dir("testfiles/output_test") {
         println!("\n{}", "📄 Generated files:".color(Color::Cyan));
         for entry in entries {
             if let Ok(entry) = entry {

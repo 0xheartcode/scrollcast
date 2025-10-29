@@ -1,14 +1,14 @@
 # Scrollcast 🦀📄
 
-A modern Rust CLI tool that converts Git repositories into beautifully formatted documents (PDF, EPUB, HTML, Markdown) with professional syntax highlighting and theming.
+A modern Rust CLI tool that converts Git repositories into beautifully formatted documents (PDF, EPUB, HTML, Markdown) with professional syntax highlighting and theming. Pure Rust implementation with no external dependencies.
 
 ## ✨ Features
 
 - 🚀 **Fast & Efficient**: Built with Rust for maximum performance
-- 🎨 **Professional Output**: Powered by Pandoc for publication-quality documents
-- 📚 **Multiple Formats**: PDF, EPUB, HTML, and Markdown output
-- 🌈 **Syntax Highlighting**: Support for 300+ programming languages via Skylighting
-- 🔧 **Solidity Support**: Automatic download and integration of Solidity syntax definitions
+- 🦀 **Pure Rust**: No external dependencies - everything built with Rust libraries
+- 📚 **Multiple Formats**: PDF, EPUB (experimental), HTML, and Markdown output
+- 🌈 **Syntax Highlighting**: Support for 100+ programming languages via Syntect
+- 🔧 **Smart Language Detection**: Automatic syntax detection and highlighting
 - 📁 **Smart Git Integration**: Respects .gitignore by default with override options
 - 🎯 **Binary File Detection**: Intelligent handling of different file types
 - 📋 **Table of Contents**: Automatic TOC generation for easy navigation
@@ -19,18 +19,10 @@ A modern Rust CLI tool that converts Git repositories into beautifully formatted
 
 ### Prerequisites
 
-You need to have [Pandoc](https://pandoc.org/installing.html) installed on your system:
+**No external dependencies required!** Scrollcast is a pure Rust implementation that works out of the box.
 
-```bash
-# Ubuntu/Debian
-sudo apt-get install pandoc
-
-# macOS
-brew install pandoc
-
-# Windows
-# Download from https://pandoc.org/installing.html
-```
+- Rust 1.70+ (for building from source)
+- Git (for processing git repositories)
 
 ### Installation
 
@@ -50,14 +42,17 @@ cargo build --release
 # Convert to PDF (default)
 scrollcast /path/to/repo -o output.pdf
 
-# Convert to EPUB
-scrollcast /path/to/repo -o output.epub -f epub
+# Convert to EPUB (experimental)
+scrollcast /path/to/repo -o output.epub -f epub --include-experimental
 
 # Convert to HTML
 scrollcast /path/to/repo -o output.html -f html
 
 # Convert to Markdown
 scrollcast /path/to/repo -o output.md -f markdown
+
+# Test project generation
+scrollcast --test-project
 
 # Use different theme
 scrollcast /path/to/repo -o output.pdf -t zenburn
@@ -89,6 +84,8 @@ OPTIONS:
         --no-gitignore         Ignore .gitignore files and process all files
         --no-toc               Don't include table of contents
         --ignore <DIR>         Ignore specific directories (can be used multiple times)
+        --test-project         Generate test project documentation in testfiles/output_test
+        --include-experimental Include experimental features like EPUB
     -y, --yes                  Skip confirmation prompts
         --list-themes          List available syntax highlighting themes
         --list-languages       List supported programming languages
@@ -99,13 +96,14 @@ OPTIONS:
 ## 🎨 Output Formats
 
 ### PDF
-- **Engine**: XeLaTeX for superior Unicode support
-- **Features**: Vector graphics, professional typography, bookmarks
+- **Engine**: printpdf for pure Rust implementation
+- **Features**: Vector graphics, professional typography
 - **Best for**: Printing, sharing, archival
 
-### EPUB
-- **Features**: Reflowable text, TOC navigation, metadata
+### EPUB (Experimental)
+- **Features**: Reflowable text, TOC navigation, inline CSS styling
 - **Best for**: E-readers, mobile devices, accessibility
+- **Note**: Include with `--include-experimental` flag
 
 ### HTML
 - **Features**: Standalone HTML with embedded CSS, responsive design
@@ -248,21 +246,27 @@ cargo install --path .
 ```
 src/
 ├── main.rs                 # CLI interface and orchestration
-├── config.rs              # Configuration management (legacy)
+├── config.rs              # Configuration management
 ├── file_processor.rs      # File discovery and filtering
 ├── markdown_generator.rs  # Markdown generation from file tree
-├── pandoc.rs              # Pandoc integration and format conversion
-└── theme.rs               # Theme definitions (legacy)
+├── theme.rs               # Theme definitions
+└── renderer/
+    ├── mod.rs             # Document renderer trait and core logic
+    ├── html.rs            # HTML renderer with syntax highlighting
+    ├── epub.rs            # EPUB renderer with inline CSS
+    └── pdf.rs             # PDF renderer (printpdf-based)
 ```
 
 ### Dependencies
 
-- **Pandoc**: Document conversion engine
-- **Tokio**: Async runtime for HTTP requests
-- **Clap**: Command-line argument parsing
-- **Git2**: Git repository integration
-- **Colorful**: Terminal output styling
-- **Reqwest**: HTTP client for downloading syntax definitions
+- **pulldown-cmark**: Markdown parsing and processing
+- **syntect**: Syntax highlighting engine
+- **printpdf**: PDF generation
+- **epub-builder**: EPUB document creation
+- **clap**: Command-line argument parsing
+- **git2**: Git repository integration
+- **regex**: Pattern matching for CSS conversion
+- **tokio**: Async runtime
 
 ## 📋 Examples
 
@@ -272,8 +276,8 @@ src/
 # Generate project documentation
 scrollcast ./my-project -o docs/codebase.pdf -t kate
 
-# Create EPUB for mobile reading
-scrollcast ./my-project -o docs/codebase.epub -f epub -t breezedark
+# Create EPUB for mobile reading (experimental)
+scrollcast ./my-project -o docs/codebase.epub -f epub -t breezedark --include-experimental
 ```
 
 ### Code Review
@@ -320,10 +324,11 @@ MIT License
 
 ## 🙏 Acknowledgments
 
-- **Pandoc**: Universal document converter
-- **Skylighting**: Syntax highlighting engine
+- **pulldown-cmark**: Fast CommonMark parser
+- **syntect**: Pure Rust syntax highlighting
+- **printpdf**: Rust PDF generation library
+- **epub-builder**: EPUB creation toolkit
 - **KDE Syntax Highlighting**: Comprehensive language definitions
-- **XeLaTeX**: Superior Unicode and typography support
 
 ---
 

@@ -3081,6 +3081,7 @@ dependencies = [
  "predicates",
  "printpdf",
  "pulldown-cmark",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
