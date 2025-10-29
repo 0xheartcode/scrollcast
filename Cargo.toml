@@ -6,8 +6,12 @@ authors = ["heartcode <0xheartcode@gmail.com>"]
 description = "A fast Rust CLI tool for converting Git repositories to beautifully formatted documents"
 license = "MIT"
 repository = "https://github.com/0xheartcode/scrollcast"
-keywords = ["git", "pdf", "epub", "cli", "documentation", "code"]
+keywords = ["git", "pdf", "epub", "markdown", "wkhtmltopdf"]
 categories = ["command-line-utilities", "development-tools"]
+
+[lib]
+name = "scrollcast"
+path = "src/lib.rs"
 
 [[bin]]
 name = "scrollcast"
