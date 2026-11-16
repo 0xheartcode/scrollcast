@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ release ]
+    branches: [ main, release ]
   pull_request:
-    branches: [ release ]
+    branches: [ main, release ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -38,17 +38,14 @@ jobs:
         path: target
         key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Install pandoc
-      run: sudo apt-get update && sudo apt-get install -y pandoc texlive-xetex
-
-    - name: Run tests
-      run: cargo test --verbose
-
     - name: Check formatting
       run: cargo fmt -- --check
 
     - name: Run clippy
-      run: cargo clippy -- -D warnings
+      run: cargo clippy --all-targets -- -D warnings
+
+    - name: Run tests
+      run: cargo test --verbose
 
   build:
     name: Build

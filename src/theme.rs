@@ -1,16 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum ThemeMode {
+    #[default]
     Light,
     Dark,
-}
-
-impl Default for ThemeMode {
-    fn default() -> Self {
-        ThemeMode::Light
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,16 +38,16 @@ impl Theme {
             mode: ThemeMode::Light,
             colors: ColorScheme {
                 background: "#FFFFFF".to_string(),
-                text: "#1a1a1a".to_string(),           // Dark gray text
-                keywords: "#0066cc".to_string(),        // Blue keywords
-                strings: "#008000".to_string(),         // Green strings
-                comments: "#808080".to_string(),        // Gray comments
-                numbers: "#800080".to_string(),         // Purple numbers
-                functions: "#cc6600".to_string(),       // Orange functions
-                types: "#008080".to_string(),           // Teal types
-                operators: "#cc0000".to_string(),       // Red operators
-                line_numbers: "#666666".to_string(),    // Medium gray line numbers
-                header: "#000000".to_string(),          // Black headers
+                text: "#1a1a1a".to_string(),         // Dark gray text
+                keywords: "#0066cc".to_string(),     // Blue keywords
+                strings: "#008000".to_string(),      // Green strings
+                comments: "#808080".to_string(),     // Gray comments
+                numbers: "#800080".to_string(),      // Purple numbers
+                functions: "#cc6600".to_string(),    // Orange functions
+                types: "#008080".to_string(),        // Teal types
+                operators: "#cc0000".to_string(),    // Red operators
+                line_numbers: "#666666".to_string(), // Medium gray line numbers
+                header: "#000000".to_string(),       // Black headers
             },
             font_size: 10.0,
             line_height: 1.2,
@@ -64,17 +59,17 @@ impl Theme {
         Theme {
             mode: ThemeMode::Dark,
             colors: ColorScheme {
-                background: "#2d2d2d".to_string(),      // Dark gray background
-                text: "#f0f0f0".to_string(),            // Light gray text
-                keywords: "#66b3ff".to_string(),        // Light blue keywords
-                strings: "#66ff66".to_string(),         // Light green strings
-                comments: "#b3b3b3".to_string(),        // Light gray comments
-                numbers: "#ff66ff".to_string(),         // Light purple numbers
-                functions: "#ffcc66".to_string(),       // Light orange functions
-                types: "#66ffcc".to_string(),           // Light teal types
-                operators: "#ff6666".to_string(),       // Light red operators
-                line_numbers: "#999999".to_string(),    // Gray line numbers
-                header: "#ffffff".to_string(),          // White headers
+                background: "#2d2d2d".to_string(),   // Dark gray background
+                text: "#f0f0f0".to_string(),         // Light gray text
+                keywords: "#66b3ff".to_string(),     // Light blue keywords
+                strings: "#66ff66".to_string(),      // Light green strings
+                comments: "#b3b3b3".to_string(),     // Light gray comments
+                numbers: "#ff66ff".to_string(),      // Light purple numbers
+                functions: "#ffcc66".to_string(),    // Light orange functions
+                types: "#66ffcc".to_string(),        // Light teal types
+                operators: "#ff6666".to_string(),    // Light red operators
+                line_numbers: "#999999".to_string(), // Gray line numbers
+                header: "#ffffff".to_string(),       // White headers
             },
             font_size: 10.0,
             line_height: 1.2,
@@ -108,16 +103,28 @@ impl Theme {
     #[allow(dead_code)]
     pub fn get_color_map(&self) -> HashMap<String, (f32, f32, f32)> {
         let mut map = HashMap::new();
-        
-        map.insert("keyword".to_string(), Self::hex_to_rgb(&self.colors.keywords));
+
+        map.insert(
+            "keyword".to_string(),
+            Self::hex_to_rgb(&self.colors.keywords),
+        );
         map.insert("string".to_string(), Self::hex_to_rgb(&self.colors.strings));
-        map.insert("comment".to_string(), Self::hex_to_rgb(&self.colors.comments));
+        map.insert(
+            "comment".to_string(),
+            Self::hex_to_rgb(&self.colors.comments),
+        );
         map.insert("number".to_string(), Self::hex_to_rgb(&self.colors.numbers));
-        map.insert("function".to_string(), Self::hex_to_rgb(&self.colors.functions));
+        map.insert(
+            "function".to_string(),
+            Self::hex_to_rgb(&self.colors.functions),
+        );
         map.insert("type".to_string(), Self::hex_to_rgb(&self.colors.types));
-        map.insert("operator".to_string(), Self::hex_to_rgb(&self.colors.operators));
+        map.insert(
+            "operator".to_string(),
+            Self::hex_to_rgb(&self.colors.operators),
+        );
         map.insert("text".to_string(), Self::hex_to_rgb(&self.colors.text));
-        
+
         map
     }
 }
@@ -137,7 +144,7 @@ mod tests {
     fn test_theme_creation() {
         let light = Theme::light();
         assert!(matches!(light.mode, ThemeMode::Light));
-        
+
         let dark = Theme::dark();
         assert!(matches!(dark.mode, ThemeMode::Dark));
     }
@@ -146,7 +153,7 @@ mod tests {
     fn test_color_map() {
         let theme = Theme::light();
         let color_map = theme.get_color_map();
-        
+
         assert!(color_map.contains_key("keyword"));
         assert!(color_map.contains_key("string"));
         assert!(color_map.contains_key("comment"));

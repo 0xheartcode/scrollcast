@@ -26,7 +26,7 @@ Añade a tu `Cargo.toml`:
 
 ```toml
 [dependencies]
-scrollcast = "0.1.0"
+scrollcast = "0.1.1"
 ```
 
 ## Uso

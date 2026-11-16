@@ -1,9 +1,15 @@
-use anyhow::Result;
-use pulldown_cmark::{Event, html, Tag, TagEnd, CowStr};
-use crate::renderer::{DocumentRenderer, DocumentMetadata};
+use crate::renderer::{DocumentMetadata, DocumentRenderer};
 use crate::syntax::highlighter::SyntaxHighlighter;
+use anyhow::Result;
+use pulldown_cmark::{html, CowStr, Event, Tag, TagEnd};
 
 pub struct HtmlRenderer;
+
+impl Default for HtmlRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl HtmlRenderer {
     pub fn new() -> Self {
@@ -15,22 +21,26 @@ impl DocumentRenderer for HtmlRenderer {
     fn render(&self, events: Vec<Event>, metadata: &DocumentMetadata) -> Result<Vec<u8>> {
         // Initialize syntax highlighter
         let highlighter = SyntaxHighlighter::new()?;
-        
+
         // Process events to add syntax highlighting
         let mut processed_events = Vec::new();
         let mut i = 0;
-        
+
         while i < events.len() {
             match &events[i] {
                 Event::Start(Tag::CodeBlock(kind)) => {
                     // Extract language from code block
                     let language = match kind {
                         pulldown_cmark::CodeBlockKind::Fenced(lang) => {
-                            if lang.is_empty() { None } else { Some(lang.as_ref()) }
+                            if lang.is_empty() {
+                                None
+                            } else {
+                                Some(lang.as_ref())
+                            }
                         }
                         _ => None,
                     };
-                    
+
                     // Find the corresponding text and end events
                     i += 1;
                     let mut code_content = String::new();
@@ -46,16 +56,19 @@ impl DocumentRenderer for HtmlRenderer {
                         }
                         i += 1;
                     }
-                    
+
                     // Generate highlighted HTML
                     if language.is_some() {
-                        let highlighted_html = highlighter.highlight_to_html(&code_content, language);
+                        let highlighted_html =
+                            highlighter.highlight_to_html(&code_content, language);
                         let wrapped_html = format!("<pre>{}</pre>", highlighted_html);
-                        processed_events.push(Event::Html(CowStr::Boxed(wrapped_html.into_boxed_str())));
+                        processed_events
+                            .push(Event::Html(CowStr::Boxed(wrapped_html.into_boxed_str())));
                     } else {
                         // No language specified, use regular code block
                         processed_events.push(Event::Start(Tag::CodeBlock(kind.clone())));
-                        processed_events.push(Event::Text(CowStr::Boxed(code_content.into_boxed_str())));
+                        processed_events
+                            .push(Event::Text(CowStr::Boxed(code_content.into_boxed_str())));
                         processed_events.push(Event::End(TagEnd::CodeBlock));
                     }
                 }
@@ -65,15 +78,21 @@ impl DocumentRenderer for HtmlRenderer {
             }
             i += 1;
         }
-        
+
         // Convert processed events to HTML
         let mut body_html = String::new();
         html::push_html(&mut body_html, processed_events.into_iter());
-        
+
         // Replace \newpage with CSS page break (handle different markdown outputs)
-        body_html = body_html.replace("<p>\\newpage</p>", r#"<div style="page-break-before: always;"></div>"#);
-        body_html = body_html.replace("\\newpage", r#"<div style="page-break-before: always;"></div>"#);
-        
+        body_html = body_html.replace(
+            "<p>\\newpage</p>",
+            r#"<div style="page-break-before: always;"></div>"#,
+        );
+        body_html = body_html.replace(
+            "\\newpage",
+            r#"<div style="page-break-before: always;"></div>"#,
+        );
+
         // Create complete HTML document
         let html_document = format!(
             r#"<!DOCTYPE html>
@@ -243,25 +262,23 @@ impl DocumentRenderer for HtmlRenderer {
 <body>
     <div class="metadata">
         <h1>{}</h1>"#,
-            metadata.language,
-            metadata.title,
-            metadata.title
+            metadata.language, metadata.title, metadata.title
         );
-        
+
         let mut final_html = html_document;
-        
+
         if let Some(author) = &metadata.author {
             final_html.push_str(&format!("        <p>Author: {}</p>\n", author));
         }
-        
+
         if let Some(date) = &metadata.date {
             final_html.push_str(&format!("        <p>Generated: {}</p>\n", date));
         }
-        
+
         final_html.push_str("    </div>\n");
         final_html.push_str(&body_html);
         final_html.push_str("</body>\n</html>");
-        
+
         Ok(final_html.into_bytes())
     }
 }
