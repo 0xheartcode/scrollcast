@@ -1,25 +1,16 @@
 use anyhow::{Context, Result};
 use content_inspector::{inspect, ContentType};
+use ignore::WalkBuilder;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use serde::{Deserialize, Serialize};
-use ignore::WalkBuilder;
 
 use crate::markdown_generator::{FileInfo, MarkdownGenerator};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IgnoreConfig {
     pub ignored_files: Vec<String>,
     pub ignored_extensions: Vec<String>,
-}
-
-impl Default for IgnoreConfig {
-    fn default() -> Self {
-        Self {
-            ignored_files: vec![],
-            ignored_extensions: vec![],
-        }
-    }
 }
 
 pub struct FileProcessor {
@@ -27,6 +18,12 @@ pub struct FileProcessor {
     universal_excludes: UniversalExcludes,
     respect_gitignore: bool,
     ignored_directories: Vec<String>,
+}
+
+impl Default for FileProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FileProcessor {
@@ -94,14 +91,18 @@ impl FileProcessor {
         for result in walker {
             match result {
                 Ok(entry) => {
-                    if entry.file_type().map_or(false, |ft| ft.is_file()) {
+                    if entry.file_type().is_some_and(|ft| ft.is_file()) {
                         let file_path = entry.path();
-                        
+
                         if self.should_process_file_simple(file_path, root_path)? {
                             match self.process_single_file(file_path, root_path) {
                                 Ok(file_info) => files.push(file_info),
                                 Err(e) => {
-                                    eprintln!("Warning: Failed to process file {}: {}", file_path.display(), e);
+                                    eprintln!(
+                                        "Warning: Failed to process file {}: {}",
+                                        file_path.display(),
+                                        e
+                                    );
                                     continue;
                                 }
                             }
@@ -118,7 +119,7 @@ impl FileProcessor {
         // Show warning for large file counts
         if files.len() > 50 {
             eprintln!("⚠️  Warning: Processing {} files. This may take a while and result in a large document.", files.len());
-            
+
             // Show top directories by file count
             let dir_counts = self.get_directory_file_counts(&files);
             if !dir_counts.is_empty() {
@@ -127,7 +128,7 @@ impl FileProcessor {
                     eprintln!("     {} - {} files", dir, count);
                 }
             }
-            
+
             eprintln!("   Consider using .gitignore or custom ignore rules to reduce the number of files.");
         }
 
@@ -138,14 +139,16 @@ impl FileProcessor {
 
     fn should_process_file_simple(&self, file_path: &Path, root_path: &Path) -> Result<bool> {
         // Get relative path for checking
-        let relative_path = file_path.strip_prefix(root_path)
+        let relative_path = file_path
+            .strip_prefix(root_path)
             .context("Failed to get relative path")?;
         let relative_path_str = relative_path.to_string_lossy();
 
         // Check user-specified ignored directories
         for ignored_dir in &self.ignored_directories {
-            if relative_path_str.starts_with(ignored_dir) || 
-               relative_path_str.starts_with(&format!("{}/", ignored_dir)) {
+            if relative_path_str.starts_with(ignored_dir)
+                || relative_path_str.starts_with(&format!("{}/", ignored_dir))
+            {
                 return Ok(false);
             }
         }
@@ -157,8 +160,10 @@ impl FileProcessor {
 
         // Check custom ignore configuration
         if self.ignore_config.ignored_files.iter().any(|ignored| {
-            relative_path_str.contains(ignored) || 
-            file_path.file_name().map_or(false, |name| name.to_string_lossy().contains(ignored))
+            relative_path_str.contains(ignored)
+                || file_path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().contains(ignored))
         }) {
             return Ok(false);
         }
@@ -176,9 +181,9 @@ impl FileProcessor {
 
     fn get_directory_file_counts(&self, files: &[FileInfo]) -> Vec<(String, usize)> {
         use std::collections::HashMap;
-        
+
         let mut dir_counts: HashMap<String, usize> = HashMap::new();
-        
+
         for file in files {
             let path = Path::new(&file.path);
             let dir = if let Some(parent) = path.parent() {
@@ -190,25 +195,26 @@ impl FileProcessor {
             } else {
                 ".".to_string()
             };
-            
+
             *dir_counts.entry(dir).or_insert(0) += 1;
         }
-        
+
         // Sort by count descending
         let mut sorted: Vec<(String, usize)> = dir_counts.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.cmp(&a.1));
-        
+        sorted.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
+
         sorted
     }
 
     fn process_single_file(&self, file_path: &Path, root_path: &Path) -> Result<FileInfo> {
-        let relative_path = file_path.strip_prefix(root_path)
+        let relative_path = file_path
+            .strip_prefix(root_path)
             .context("Failed to get relative path")?;
         let relative_path_str = relative_path.to_string_lossy().to_string();
 
         // Read file content
-        let content = fs::read(file_path)
-            .context(format!("Failed to read file: {}", file_path.display()))?;
+        let content =
+            fs::read(file_path).context(format!("Failed to read file: {}", file_path.display()))?;
 
         let file_size = content.len();
 
@@ -216,7 +222,8 @@ impl FileProcessor {
         let (text_content, detected_language) = match inspect(&content) {
             ContentType::BINARY => {
                 // For binary files, we'll include a placeholder
-                let placeholder = format!("[Binary file: {} ({} bytes)]", 
+                let placeholder = format!(
+                    "[Binary file: {} ({} bytes)]",
                     file_path.file_name().unwrap_or_default().to_string_lossy(),
                     content.len()
                 );
@@ -228,8 +235,10 @@ impl FileProcessor {
                 let language = MarkdownGenerator::detect_language(&relative_path_str);
                 (text, language)
             }
-            ContentType::UTF_16LE | ContentType::UTF_16BE | 
-            ContentType::UTF_32LE | ContentType::UTF_32BE => {
+            ContentType::UTF_16LE
+            | ContentType::UTF_16BE
+            | ContentType::UTF_32LE
+            | ContentType::UTF_32BE => {
                 // Handle UTF-16/32 files
                 let text = String::from_utf8_lossy(&content).to_string();
                 let language = MarkdownGenerator::detect_language(&relative_path_str);
@@ -252,6 +261,12 @@ pub struct UniversalExcludes {
     excluded_extensions: Vec<String>,
 }
 
+impl Default for UniversalExcludes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UniversalExcludes {
     pub fn new() -> Self {
         Self {
@@ -260,28 +275,23 @@ impl UniversalExcludes {
                 ".git".to_string(),
                 ".svn".to_string(),
                 ".hg".to_string(),
-                
                 // IDE and editor files
                 ".vscode".to_string(),
                 ".idea".to_string(),
                 ".vs".to_string(),
-                
                 // Build directories
                 "target".to_string(),
                 "dist".to_string(),
                 "build".to_string(),
                 "out".to_string(),
-                
                 // Dependencies
                 "node_modules".to_string(),
                 "vendor".to_string(),
                 ".cargo".to_string(),
-                
                 // Cache directories
                 ".cache".to_string(),
                 "__pycache__".to_string(),
                 ".pytest_cache".to_string(),
-                
                 // OS files
                 ".DS_Store".to_string(),
                 "Thumbs.db".to_string(),
@@ -291,17 +301,14 @@ impl UniversalExcludes {
                 ".gitignore".to_string(),
                 ".gitmodules".to_string(),
                 ".gitattributes".to_string(),
-                
                 // Package managers
                 "package-lock.json".to_string(),
                 "yarn.lock".to_string(),
                 "Cargo.lock".to_string(),
                 "composer.lock".to_string(),
                 "Gemfile.lock".to_string(),
-                
                 // IDE files
                 ".editorconfig".to_string(),
-                
                 // OS files
                 ".DS_Store".to_string(),
                 "Thumbs.db".to_string(),
@@ -309,32 +316,59 @@ impl UniversalExcludes {
             ],
             excluded_extensions: vec![
                 // Images
-                ".png".to_string(), ".jpg".to_string(), ".jpeg".to_string(), ".gif".to_string(),
-                ".bmp".to_string(), ".tiff".to_string(), ".svg".to_string(), ".ico".to_string(),
+                ".png".to_string(),
+                ".jpg".to_string(),
+                ".jpeg".to_string(),
+                ".gif".to_string(),
+                ".bmp".to_string(),
+                ".tiff".to_string(),
+                ".svg".to_string(),
+                ".ico".to_string(),
                 ".webp".to_string(),
-                
                 // Videos
-                ".mp4".to_string(), ".avi".to_string(), ".mov".to_string(), ".wmv".to_string(),
-                ".flv".to_string(), ".webm".to_string(), ".mkv".to_string(),
-                
+                ".mp4".to_string(),
+                ".avi".to_string(),
+                ".mov".to_string(),
+                ".wmv".to_string(),
+                ".flv".to_string(),
+                ".webm".to_string(),
+                ".mkv".to_string(),
                 // Audio
-                ".mp3".to_string(), ".wav".to_string(), ".flac".to_string(), ".aac".to_string(),
-                ".ogg".to_string(), ".wma".to_string(),
-                
+                ".mp3".to_string(),
+                ".wav".to_string(),
+                ".flac".to_string(),
+                ".aac".to_string(),
+                ".ogg".to_string(),
+                ".wma".to_string(),
                 // Archives
-                ".zip".to_string(), ".tar".to_string(), ".gz".to_string(), ".bz2".to_string(),
-                ".rar".to_string(), ".7z".to_string(), ".xz".to_string(),
-                
+                ".zip".to_string(),
+                ".tar".to_string(),
+                ".gz".to_string(),
+                ".bz2".to_string(),
+                ".rar".to_string(),
+                ".7z".to_string(),
+                ".xz".to_string(),
                 // Executables
-                ".exe".to_string(), ".dll".to_string(), ".so".to_string(), ".dylib".to_string(),
-                ".bin".to_string(), ".app".to_string(),
-                
+                ".exe".to_string(),
+                ".dll".to_string(),
+                ".so".to_string(),
+                ".dylib".to_string(),
+                ".bin".to_string(),
+                ".app".to_string(),
                 // Documents (binary formats)
-                ".pdf".to_string(), ".doc".to_string(), ".docx".to_string(), ".xls".to_string(),
-                ".xlsx".to_string(), ".ppt".to_string(), ".pptx".to_string(), ".ps".to_string(),
-                
+                ".pdf".to_string(),
+                ".doc".to_string(),
+                ".docx".to_string(),
+                ".xls".to_string(),
+                ".xlsx".to_string(),
+                ".ppt".to_string(),
+                ".pptx".to_string(),
+                ".ps".to_string(),
                 // Fonts
-                ".ttf".to_string(), ".otf".to_string(), ".woff".to_string(), ".woff2".to_string(),
+                ".ttf".to_string(),
+                ".otf".to_string(),
+                ".woff".to_string(),
+                ".woff2".to_string(),
                 ".eot".to_string(),
             ],
         }
@@ -373,14 +407,14 @@ impl UniversalExcludes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs::File;
     use std::io::Write;
+    use tempfile::TempDir;
 
     #[test]
     fn test_universal_excludes() {
         let excludes = UniversalExcludes::new();
-        
+
         assert!(excludes.should_exclude(Path::new(".git/config")));
         assert!(excludes.should_exclude(Path::new("src/main.rs.png")));
         assert!(excludes.should_exclude(Path::new("node_modules/package/index.js")));
@@ -395,10 +429,13 @@ mod tests {
         };
 
         let processor = FileProcessor::new().with_ignore_config(config);
-        
+
         // This would require setting up test files to fully test
-        assert!(processor.ignore_config.ignored_files.contains(&"test.txt".to_string()));
-        
+        assert!(processor
+            .ignore_config
+            .ignored_files
+            .contains(&"test.txt".to_string()));
+
         Ok(())
     }
 
@@ -409,7 +446,10 @@ mod tests {
 
         // Create test files
         let mut rust_file = File::create(temp_path.join("test.rs"))?;
-        writeln!(rust_file, "fn main() {{\n    println!(\"Hello, world!\");\n}}")?;
+        writeln!(
+            rust_file,
+            "fn main() {{\n    println!(\"Hello, world!\");\n}}"
+        )?;
 
         let mut txt_file = File::create(temp_path.join("readme.txt"))?;
         writeln!(txt_file, "This is a test file.")?;

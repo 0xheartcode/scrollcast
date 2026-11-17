@@ -2,11 +2,10 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use toml;
 
-use crate::theme::{ThemeMode, ColorScheme};
+use crate::theme::{ColorScheme, ThemeMode};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub output: OutputConfig,
@@ -44,22 +43,11 @@ pub struct FormattingConfig {
     pub remove_empty_lines: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IgnoreConfig {
     pub files: Vec<String>,
     pub extensions: Vec<String>,
     pub directories: Vec<String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            output: OutputConfig::default(),
-            theme: ThemeConfig::default(),
-            formatting: FormattingConfig::default(),
-            ignore: IgnoreConfig::default(),
-        }
-    }
 }
 
 impl Default for OutputConfig {
@@ -96,27 +84,17 @@ impl Default for FormattingConfig {
     }
 }
 
-impl Default for IgnoreConfig {
-    fn default() -> Self {
-        Self {
-            files: vec![],
-            extensions: vec![],
-            directories: vec![],
-        }
-    }
-}
-
 impl Config {
     /// Load configuration from a file, falling back to defaults if not found
     #[allow(dead_code)]
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let config_path = path.as_ref();
-        
+
         if config_path.exists() {
-            let content = fs::read_to_string(config_path)
-                .context("Failed to read configuration file")?;
-            let config: Config = toml::from_str(&content)
-                .context("Failed to parse configuration file")?;
+            let content =
+                fs::read_to_string(config_path).context("Failed to read configuration file")?;
+            let config: Config =
+                toml::from_str(&content).context("Failed to parse configuration file")?;
             Ok(config)
         } else {
             Ok(Config::default())
@@ -147,10 +125,8 @@ impl Config {
     /// Save configuration to a file
     #[allow(dead_code)]
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let content = toml::to_string_pretty(self)
-            .context("Failed to serialize configuration")?;
-        fs::write(path, content)
-            .context("Failed to write configuration file")?;
+        let content = toml::to_string_pretty(self).context("Failed to serialize configuration")?;
+        fs::write(path, content).context("Failed to write configuration file")?;
         Ok(())
     }
 
@@ -178,21 +154,9 @@ impl Config {
                 remove_empty_lines: false,
             },
             ignore: IgnoreConfig {
-                files: vec![
-                    "*.tmp".to_string(),
-                    "*.log".to_string(),
-                    ".env".to_string(),
-                ],
-                extensions: vec![
-                    ".tmp".to_string(),
-                    ".log".to_string(),
-                    ".cache".to_string(),
-                ],
-                directories: vec![
-                    "tmp".to_string(),
-                    "temp".to_string(),
-                    "logs".to_string(),
-                ],
+                files: vec!["*.tmp".to_string(), "*.log".to_string(), ".env".to_string()],
+                extensions: vec![".tmp".to_string(), ".log".to_string(), ".cache".to_string()],
+                directories: vec!["tmp".to_string(), "temp".to_string(), "logs".to_string()],
             },
         };
 
@@ -218,7 +182,8 @@ impl Config {
     /// Get output filename with fallback
     #[allow(dead_code)]
     pub fn get_output_filename(&self, fallback: &str) -> String {
-        self.output.filename
+        self.output
+            .filename
             .as_ref()
             .unwrap_or(&fallback.to_string())
             .clone()
@@ -228,17 +193,15 @@ impl Config {
     #[allow(dead_code)]
     pub fn ensure_output_dir(&self) -> Result<PathBuf> {
         let output_dir = self.get_output_dir();
-        
+
         if self.output.create_folder && !output_dir.exists() {
-            fs::create_dir_all(&output_dir)
-                .context("Failed to create output directory")?;
+            fs::create_dir_all(&output_dir).context("Failed to create output directory")?;
             println!("📁 Created output directory: {}", output_dir.display());
         }
-        
+
         Ok(output_dir)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -258,10 +221,10 @@ mod tests {
         let config = Config::default();
         let toml_str = toml::to_string(&config)?;
         let parsed: Config = toml::from_str(&toml_str)?;
-        
+
         assert_eq!(config.output.folder, parsed.output.folder);
         assert_eq!(config.theme.mode, parsed.theme.mode);
-        
+
         Ok(())
     }
 
@@ -269,15 +232,15 @@ mod tests {
     fn test_config_file_operations() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let config_path = temp_dir.path().join("test.toml");
-        
+
         // Create and save config
         let config = Config::default();
         config.save_to_file(&config_path)?;
-        
+
         // Load config back
         let loaded_config = Config::load_from_file(&config_path)?;
         assert_eq!(config.output.folder, loaded_config.output.folder);
-        
+
         Ok(())
     }
 
@@ -285,7 +248,7 @@ mod tests {
     fn test_output_directory_creation() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let output_folder = temp_dir.path().join("test_output");
-        
+
         let config = Config {
             output: OutputConfig {
                 folder: output_folder.to_string_lossy().to_string(),
@@ -298,7 +261,7 @@ mod tests {
         let created_dir = config.ensure_output_dir()?;
         assert!(created_dir.exists());
         assert!(created_dir.is_dir());
-        
+
         Ok(())
     }
 }

@@ -1,12 +1,12 @@
 [package]
 name = "scrollcast"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["heartcode <0xheartcode@gmail.com>"]
-description = "A fast Rust CLI tool for converting Git repositories to beautifully formatted documents"
+description = "A fast, pure-Rust CLI tool for converting Git repositories to beautifully formatted documents"
 license = "MIT"
 repository = "https://github.com/0xheartcode/scrollcast"
-keywords = ["git", "pdf", "epub", "markdown", "wkhtmltopdf"]
+keywords = ["git", "pdf", "epub", "syntax-highlighting", "documentation"]
 categories = ["command-line-utilities", "development-tools"]
 
 [lib]
@@ -27,16 +27,12 @@ serde_json = "1.0"
 toml = "0.8"
 
 # File operations and Git
-git2 = "0.18"
 walkdir = "2.4"
 content_inspector = "0.2"
 ignore = "0.4"
 
-# HTTP client for downloading syntax definitions
-reqwest = { version = "0.11", features = ["json"] }
-
 # Async and utilities
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "time"] }
 anyhow = "1.0"
 thiserror = "1.0"
 
