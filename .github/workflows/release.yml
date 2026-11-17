@@ -9,6 +9,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Needed so GITHUB_TOKEN can create the GitHub Release (the repo default is
+# read-only). Without this the action-gh-release step fails with HTTP 403
+# "Resource not accessible by integration".
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
     name: Build and Release
