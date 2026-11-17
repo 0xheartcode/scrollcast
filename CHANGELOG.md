@@ -22,6 +22,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The document title now resolves to the real directory name when the input is
   `.` or a trailing-slash path, instead of the generic "Repository".
 - List bullets and non-ASCII characters no longer render as mojibake in PDFs.
+- The intermediate markdown file now uses a unique per-process path (and is
+  cleaned up afterwards), so concurrent runs over the same repository no longer
+  race on a shared temp file or leak files into the system temp directory.
 
 ### Changed
 

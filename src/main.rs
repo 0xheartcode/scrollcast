@@ -372,8 +372,19 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| "Repository".to_string());
     let repo_name = repo_name_owned.as_str();
 
+    // Use a per-process, per-invocation unique temp file so concurrent runs
+    // (e.g. two `scrollcast` processes over the same repo, or parallel tests)
+    // never read or overwrite each other's half-written markdown.
     let temp_dir = std::env::temp_dir();
-    let temp_markdown = temp_dir.join(format!("{}_temp.md", repo_name));
+    let unique = format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    let temp_markdown = temp_dir.join(format!("scrollcast-{repo_name}-{unique}.tmp.md"));
 
     if needs_chunking {
         process_files_in_chunks(
@@ -432,12 +443,8 @@ async fn main() -> Result<()> {
         fs::copy(&temp_markdown, output_path).context("Failed to copy markdown file")?;
     }
 
-    // Keep temporary file for debugging
-    // let _ = fs::remove_file(&temp_markdown);
-    println!(
-        "📝 Debug: Temporary markdown file: {}",
-        temp_markdown.display()
-    );
+    // Clean up the intermediate markdown file.
+    let _ = fs::remove_file(&temp_markdown);
 
     println!(
         "\n{} Document generated successfully!",
